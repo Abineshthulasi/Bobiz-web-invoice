@@ -360,13 +360,573 @@ async function viewPublicInvoice(invNo){
         <div style='text-align:right'><div>Subtotal: ₹ ${r.totals.subtotal.toFixed(2)}</div><div>Tax: ₹ ${r.totals.tax.toFixed(2)}</div><div style='font-weight:700'>Total: ₹ ${r.totals.total.toFixed(2)}</div></div>
       </div>
     `;
-    w.document.write(`<!doctype html><html><head><meta charset='utf-8'><title>${invNo}</title></head><body>${content}</body></html>`);
+    w.document.write(`<!doctype html><html><head><meta charset='utf-8'><title>${invNo}</title></head><body>${content}
+<!-- Enhancement script: product edit/delete, public invoice actions, mobile popup fallback -->
+<script>
+// --- Persistence for products ---
+function loadProductsFromStorage(){
+  try{
+    const raw = localStorage.getItem('products_v1');
+    if(raw){
+      const arr = JSON.parse(raw);
+      if(Array.isArray(arr) && arr.length) {
+        products = arr.map(p=>({id:p.id,name:p.name,price:p.price,sku:p.sku}));
+      }
+    }
+  }catch(e){ console.warn('loadProducts error', e); }
+}
+function saveProductsToStorage(){
+  try{ localStorage.setItem('products_v1', JSON.stringify(products)); }catch(e){console.warn('saveProducts error', e);}
+}
+
+// Override renderCatalog to include Edit/Delete buttons for products
+function renderCatalog(filter=''){
+  const el = document.getElementById('productCatalog'); el.innerHTML = '';
+  const q = (filter||'').toLowerCase();
+  const list = products.filter(p => (p.name||'').toLowerCase().includes(q) || (p.sku||'').toLowerCase().includes(q));
+  list.forEach(p => {
+    const d = document.createElement('div'); d.style.padding='8px'; d.style.borderBottom='1px solid #f1f5f9';
+    const left = document.createElement('div'); left.innerHTML = `<strong>${p.name}</strong><div class='small'>₹ ${Number(p.price||0).toFixed(2)}${p.sku?(' • '+p.sku):''}</div>`;
+    const right = document.createElement('div');
+    // Add, Edit, Delete buttons
+    const btnAdd = document.createElement('button'); btnAdd.className='btn'; btnAdd.textContent='Add'; btnAdd.addEventListener('click', ()=>addToCart(p.id));
+    const btnEdit = document.createElement('button'); btnEdit.className='btn'; btnEdit.style.background='#f59e0b'; btnEdit.textContent='Edit'; btnEdit.addEventListener('click', ()=>openEditProductModal(p.id));
+    const btnDel = document.createElement('button'); btnDel.className='btn'; btnDel.style.background='#ef4444'; btnDel.textContent='Delete'; btnDel.addEventListener('click', ()=>deleteProduct(p.id));
+    // layout
+    const wrap = document.createElement('div'); wrap.style.display='flex'; wrap.style.gap='6px'; wrap.appendChild(btnAdd); wrap.appendChild(btnEdit); wrap.appendChild(btnDel);
+    right.appendChild(wrap);
+    const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='space-between'; row.style.alignItems='center'; row.appendChild(left); row.appendChild(right);
+    d.appendChild(row); el.appendChild(d);
+  });
+}
+
+// Product edit modal support: reuse the existing modal but indicate edit mode
+let editingProductId = null;
+function openEditProductModal(id){
+  const p = products.find(x=>x.id===id); if(!p) return alert('Product not found');
+  editingProductId = id;
+  document.getElementById('p_name').value = p.name;
+  document.getElementById('p_price').value = p.price;
+  document.getElementById('p_sku').value = p.sku||'';
+  document.getElementById('modal').style.display='flex';
+}
+function saveProductFromModalEnhanced(){
+  const name = document.getElementById('p_name').value.trim();
+  const price = Number(document.getElementById('p_price').value)||0;
+  const sku = document.getElementById('p_sku').value.trim();
+  if(!name || price<=0){ alert('Enter product name and price > 0'); return; }
+  if(editingProductId){
+    const p = products.find(x=>x.id===editingProductId);
+    if(p){ p.name = name; p.price = price; p.sku = sku; }
+    editingProductId = null;
+  } else {
+    const id = products.length? (Math.max(...products.map(p=>p.id))+1):1;
+    products.push({id,name,price,sku});
+  }
+  saveProductsToStorage();
+  closeAddProductModal();
+  renderCatalog();
+}
+
+// delete product
+function deleteProduct(id){
+  if(!confirm('Delete product? This will remove it from the catalog.')) return;
+  products = products.filter(p=>p.id!==id);
+  saveProductsToStorage();
+  renderCatalog();
+}
+
+// --- Mobile-friendly window open fallback ---
+function openWindowWithContent(html, filenameForBlob = null) {
+  try {
+    const w = window.open('', '_blank');
+    if (w && w.document) {
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      return w;
+    }
+  } catch (e) {
+    console.warn('window.open failed, falling back to blob:', e);
+  }
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  if (filenameForBlob) a.download = filenameForBlob;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  return null;
+}
+
+// --- Public invoices: view/edit/delete/pdf/csv ---
+async function loadPublicInvoicesEnhanced(){
+  const container = document.getElementById('publicList'); container.innerHTML = '<div class="small">Loading...</div>';
+  if (!firestore) { container.innerHTML = '<div class="small">Firebase not configured — public invoices unavailable.</div>'; return; }
+  try {
+    const snapshot = await firestore.collection('public_invoices').orderBy('publishedAt','desc').limit(200).get();
+    const q = document.getElementById('publicSearch').value.trim().toLowerCase();
+    const list = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      if (!q || (data.customer && data.customer.mobile && data.customer.mobile.includes(q)) || (data.invoiceNo && data.invoiceNo.toLowerCase().includes(q))) list.push(data);
+    });
+    if (!list.length) { container.innerHTML = '<div class="small">No public invoices found.</div>'; return; }
+    container.innerHTML = '';
+    list.forEach(r => {
+      const d = document.createElement('div'); d.style.padding='8px'; d.style.borderBottom='1px solid #f1f5f9';
+      d.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <strong>${r.invoiceNo}</strong> <span class='small'>• ${new Date(r.date).toLocaleString()}</span>
+            <div class='small'>${r.customer && r.customer.name ? r.customer.name+' • '+r.customer.mobile : 'No customer'}</div>
+          </div>
+          <div style='display:flex;gap:8px'>
+            <button class='btn' data-inv='${r.invoiceNo}' data-action='viewPublic'>View</button>
+            <button class='btn' data-inv='${r.invoiceNo}' data-action='editPublic'>Edit</button>
+            <button class='btn' data-inv='${r.invoiceNo}' data-action='deletePublic'>Delete</button>
+            <button class='btn' data-inv='${r.invoiceNo}' data-action='pdfPublic'>PDF</button>
+            <button class='btn' data-inv='${r.invoiceNo}' data-action='csvPublic'>Excel</button>
+          </div>
+        </div>`;
+      container.appendChild(d);
+    });
+  } catch (e) {
+    console.error(e); container.innerHTML = '<div class="small">Error loading public invoices: '+e.message+'</div>';
+  }
+}
+
+async function viewPublicInvoiceEnhanced(invNo){
+  if (!firestore) { alert('Firebase not configured'); return; }
+  try {
+    const doc = await firestore.collection('public_invoices').doc(invNo).get();
+    if (!doc.exists) { alert('Not found'); return; }
+    const r = doc.data();
+    const html = renderPrintableHtmlForInvoice(r);
+    const w = openWindowWithContent(html);
+    if (w && w.document) {
+      setTimeout(()=>{ try { w.focus(); w.print(); } catch(e) { console.warn('print failed', e); } }, 250);
+    } else {
+      alert('Invoice opened. Use your browser menu -> Print -> Save as PDF to create a PDF.');
+    }
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function editPublicInvoiceEnhanced(invNo){
+  if (!firestore) { alert('Firebase not configured'); return; }
+  try {
+    const doc = await firestore.collection('public_invoices').doc(invNo).get();
+    if (!doc.exists) { alert('Not found'); return; }
+    const r = doc.data();
+    cart = r.products.map(p=>({id:p.id,name:p.name,price:p.price,qty:p.qty,sku:p.sku}));
+    settings.discount = r.settings?.discount || 0;
+    settings.discountType = r.settings?.discountType || 'flat';
+    settings.tax = r.settings?.tax || 0;
+    settings.advance = r.settings?.advance || 0;
+    document.getElementById('discount').value = settings.discount; document.getElementById('discountType').value = settings.discountType; document.getElementById('tax').value = settings.tax;
+    document.getElementById('advanceInput').value = settings.advance;
+    document.getElementById('customerName').value = r.customer?.name || '';
+    document.getElementById('customerMobile').value = r.customer?.mobile || '';
+    document.getElementById('invoiceNo').innerText = r.invoiceNo;
+    renderCart();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    alert('Public invoice loaded into editor. Make changes and Save & Publish to overwrite (if your rules allow).');
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function deletePublicInvoiceEnhanced(invNo){
+  if (!firestore) { alert('Firebase not configured'); return; }
+  if (!confirm('Delete public invoice '+invNo+'? This removes it from the public list.')) return;
+  try {
+    await firestore.collection('public_invoices').doc(invNo).delete();
+    alert('Public invoice deleted.');
+    loadPublicInvoicesEnhanced();
+  } catch (e) { alert('Delete failed: '+e.message); }
+}
+
+async function downloadPublicPDFEnhanced(invNo){
+  if (!firestore) { alert('Firebase not configured'); return; }
+  try {
+    const doc = await firestore.collection('public_invoices').doc(invNo).get();
+    if (!doc.exists) { alert('Not found'); return; }
+    const r = doc.data();
+    const html = renderPrintableHtmlForInvoice(r);
+    const w = openWindowWithContent(html, `invoice-${invNo}.html`);
+    if (w && w.document) {
+      setTimeout(()=>{ try { w.focus(); w.print(); } catch(e){ console.warn(e); } }, 300);
+    } else {
+      alert('Invoice opened. Use your browser menu -> Print -> Save as PDF to create a PDF.');
+    }
+  } catch (e) { alert('Error: '+e.message); }
+}
+
+async function downloadPublicCSVEnhanced(invNo){
+  if (!firestore) { alert('Firebase not configured'); return; }
+  try {
+    const doc = await firestore.collection('public_invoices').doc(invNo).get();
+    if (!doc.exists) { alert('Not found'); return; }
+    const r = doc.data();
+    const rows = [];
+    rows.push(['Invoice', r.invoiceNo]);
+    rows.push(['Date', new Date(r.date).toLocaleString()]);
+    rows.push(['Customer', r.customer?.name || '', 'Mobile', r.customer?.mobile || '']);
+    rows.push([]);
+    rows.push(['Item','Qty','Unit Price','Total']);
+    r.products.forEach(p => { rows.push([p.name, p.qty, p.price.toFixed(2), (p.price * p.qty).toFixed(2)]); });
+    rows.push([]);
+    const totals = r.totals || {};
+    rows.push(['Subtotal', totals.subtotal?.toFixed(2) || '0.00']);
+    rows.push(['Tax', totals.tax?.toFixed(2) || '0.00']);
+    rows.push(['Total', totals.total?.toFixed(2) || '0.00']);
+    rows.push(['Advance', totals.advance?.toFixed(2) || '0.00']);
+    rows.push(['Balance', totals.balance?.toFixed(2) || '0.00']);
+    const csv = rows.map(rw => rw.map(cell => { if (cell === null || cell === undefined) return ''; const s = String(cell).replace(/"/g, '""'); return `"${s}"`; }).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `invoice-${invNo}.csv`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),10000);
+  } catch (e) { alert('Error: '+e.message); }
+}
+
+// helper to produce printable HTML for an invoice object (reused)
+function renderPrintableHtmlForInvoice(r) {
+  const itemsHtml = (r.products || []).map(p => `<div style="display:flex;justify-content:space-between;padding:6px 0"><div>${p.name} x ${p.qty}</div><div>₹ ${(p.price*p.qty).toFixed(2)}</div></div>`).join('');
+  const totals = r.totals || {};
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${r.invoiceNo}</title>
+    <style>body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:12px}h2{margin:0 0 8px} .small{color:#666;font-size:13px}</style>
+    </head><body>
+    <h2>Invoice: ${r.invoiceNo}</h2>
+    <div class="small">${new Date(r.date).toLocaleString()}</div>
+    <div style="margin-top:8px">${r.customer?.name || ''} ${r.customer?.mobile ? ' • ' + r.customer.mobile : ''}</div>
+    <hr/>
+    ${itemsHtml}
+    <hr/>
+    <div style="text-align:right">
+      <div>Subtotal: ₹ ${(totals.subtotal||0).toFixed(2)}</div>
+      <div>Tax: ₹ ${(totals.tax||0).toFixed(2)}</div>
+      <div style="font-weight:700">Total: ₹ ${(totals.total||0).toFixed(2)}</div>
+      <div>Advance: ₹ ${(totals.advance||0).toFixed(2)}</div>
+      <div style="font-size:18px;margin-top:6px">Balance: ₹ ${(totals.balance||0).toFixed(2)}</div>
+    </div>
+    </body></html>`;
+}
+
+// Delegated public action handler
+document.addEventListener('click', (e)=>{
+  const btn = e.target.closest('button[data-action]');
+  if(!btn) return;
+  const inv = btn.dataset.inv; const act = btn.dataset.action;
+  if(act==='viewPublic') viewPublicInvoiceEnhanced(inv);
+  else if(act==='editPublic') editPublicInvoiceEnhanced(inv);
+  else if(act==='deletePublic') deletePublicInvoiceEnhanced(inv);
+  else if(act==='pdfPublic') downloadPublicPDFEnhanced(inv);
+  else if(act==='csvPublic') downloadPublicCSVEnhanced(inv);
+});
+
+// Wire new UI: override some button listeners to enhanced functions
+window.addEventListener('load', ()=>{
+  // load products from storage and render
+  loadProductsFromStorage();
+  renderCatalog();
+  // replace public refresh handler if exists
+  const pr = document.getElementById('btnPublicRefresh'); if(pr){ pr.removeEventListener && pr.removeEventListener('click', loadPublicInvoices); pr.addEventListener('click', loadPublicInvoicesEnhanced); }
+  // also hook initial public load
+  const pubSearch = document.getElementById('publicSearch'); if(pubSearch){ pubSearch.addEventListener('keyup', (e)=>{ if(e.key==='Enter') loadPublicInvoicesEnhanced(); }); }
+  // override Save button in modal to enhanced save
+  const modalSave = document.getElementById('btnModalSave'); if(modalSave){ modalSave.removeEventListener && modalSave.removeEventListener('click', saveProductFromModal); modalSave.addEventListener('click', saveProductFromModalEnhanced); }
+});
+</script>
+
+</body></html>`);
     w.document.close();
   }catch(e){ alert('Error: '+e.message); }
 }
 
 /* Print and Export */
-function printInvoice(){ const content = $('invoicePreview').outerHTML; const styles = `<style>@media print{@page{size:auto;margin:10mm}}body{font-family:Inter,Arial;color:#0f172a;margin:12px}.invoice{padding:0}.small{font-size:13px;color:#6b7280}#lineItems>div{display:flex;justify-content:space-between;padding:6px 0}</style>`; const w = window.open('','_blank'); const title = $('invoiceNo').innerText || 'Invoice'; w.document.write(`<!doctype html><html><head><meta charset='utf-8'><title>${title}</title>${styles}</head><body>${content}</body></html>`); w.document.close(); w.focus(); w.onload = ()=> setTimeout(()=> w.print(),100); }
+function printInvoice(){ const content = $('invoicePreview').outerHTML; const styles = `<style>@media print{@page{size:auto;margin:10mm}}body{font-family:Inter,Arial;color:#0f172a;margin:12px}.invoice{padding:0}.small{font-size:13px;color:#6b7280}#lineItems>div{display:flex;justify-content:space-between;padding:6px 0}</style>`; const w = window.open('','_blank'); const title = $('invoiceNo').innerText || 'Invoice'; w.document.write(`<!doctype html><html><head><meta charset='utf-8'><title>${title}</title>${styles}</head><body>${content}
+<!-- Enhancement script: product edit/delete, public invoice actions, mobile popup fallback -->
+<script>
+// --- Persistence for products ---
+function loadProductsFromStorage(){
+  try{
+    const raw = localStorage.getItem('products_v1');
+    if(raw){
+      const arr = JSON.parse(raw);
+      if(Array.isArray(arr) && arr.length) {
+        products = arr.map(p=>({id:p.id,name:p.name,price:p.price,sku:p.sku}));
+      }
+    }
+  }catch(e){ console.warn('loadProducts error', e); }
+}
+function saveProductsToStorage(){
+  try{ localStorage.setItem('products_v1', JSON.stringify(products)); }catch(e){console.warn('saveProducts error', e);}
+}
+
+// Override renderCatalog to include Edit/Delete buttons for products
+function renderCatalog(filter=''){
+  const el = document.getElementById('productCatalog'); el.innerHTML = '';
+  const q = (filter||'').toLowerCase();
+  const list = products.filter(p => (p.name||'').toLowerCase().includes(q) || (p.sku||'').toLowerCase().includes(q));
+  list.forEach(p => {
+    const d = document.createElement('div'); d.style.padding='8px'; d.style.borderBottom='1px solid #f1f5f9';
+    const left = document.createElement('div'); left.innerHTML = `<strong>${p.name}</strong><div class='small'>₹ ${Number(p.price||0).toFixed(2)}${p.sku?(' • '+p.sku):''}</div>`;
+    const right = document.createElement('div');
+    // Add, Edit, Delete buttons
+    const btnAdd = document.createElement('button'); btnAdd.className='btn'; btnAdd.textContent='Add'; btnAdd.addEventListener('click', ()=>addToCart(p.id));
+    const btnEdit = document.createElement('button'); btnEdit.className='btn'; btnEdit.style.background='#f59e0b'; btnEdit.textContent='Edit'; btnEdit.addEventListener('click', ()=>openEditProductModal(p.id));
+    const btnDel = document.createElement('button'); btnDel.className='btn'; btnDel.style.background='#ef4444'; btnDel.textContent='Delete'; btnDel.addEventListener('click', ()=>deleteProduct(p.id));
+    // layout
+    const wrap = document.createElement('div'); wrap.style.display='flex'; wrap.style.gap='6px'; wrap.appendChild(btnAdd); wrap.appendChild(btnEdit); wrap.appendChild(btnDel);
+    right.appendChild(wrap);
+    const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='space-between'; row.style.alignItems='center'; row.appendChild(left); row.appendChild(right);
+    d.appendChild(row); el.appendChild(d);
+  });
+}
+
+// Product edit modal support: reuse the existing modal but indicate edit mode
+let editingProductId = null;
+function openEditProductModal(id){
+  const p = products.find(x=>x.id===id); if(!p) return alert('Product not found');
+  editingProductId = id;
+  document.getElementById('p_name').value = p.name;
+  document.getElementById('p_price').value = p.price;
+  document.getElementById('p_sku').value = p.sku||'';
+  document.getElementById('modal').style.display='flex';
+}
+function saveProductFromModalEnhanced(){
+  const name = document.getElementById('p_name').value.trim();
+  const price = Number(document.getElementById('p_price').value)||0;
+  const sku = document.getElementById('p_sku').value.trim();
+  if(!name || price<=0){ alert('Enter product name and price > 0'); return; }
+  if(editingProductId){
+    const p = products.find(x=>x.id===editingProductId);
+    if(p){ p.name = name; p.price = price; p.sku = sku; }
+    editingProductId = null;
+  } else {
+    const id = products.length? (Math.max(...products.map(p=>p.id))+1):1;
+    products.push({id,name,price,sku});
+  }
+  saveProductsToStorage();
+  closeAddProductModal();
+  renderCatalog();
+}
+
+// delete product
+function deleteProduct(id){
+  if(!confirm('Delete product? This will remove it from the catalog.')) return;
+  products = products.filter(p=>p.id!==id);
+  saveProductsToStorage();
+  renderCatalog();
+}
+
+// --- Mobile-friendly window open fallback ---
+function openWindowWithContent(html, filenameForBlob = null) {
+  try {
+    const w = window.open('', '_blank');
+    if (w && w.document) {
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      return w;
+    }
+  } catch (e) {
+    console.warn('window.open failed, falling back to blob:', e);
+  }
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  if (filenameForBlob) a.download = filenameForBlob;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  return null;
+}
+
+// --- Public invoices: view/edit/delete/pdf/csv ---
+async function loadPublicInvoicesEnhanced(){
+  const container = document.getElementById('publicList'); container.innerHTML = '<div class="small">Loading...</div>';
+  if (!firestore) { container.innerHTML = '<div class="small">Firebase not configured — public invoices unavailable.</div>'; return; }
+  try {
+    const snapshot = await firestore.collection('public_invoices').orderBy('publishedAt','desc').limit(200).get();
+    const q = document.getElementById('publicSearch').value.trim().toLowerCase();
+    const list = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      if (!q || (data.customer && data.customer.mobile && data.customer.mobile.includes(q)) || (data.invoiceNo && data.invoiceNo.toLowerCase().includes(q))) list.push(data);
+    });
+    if (!list.length) { container.innerHTML = '<div class="small">No public invoices found.</div>'; return; }
+    container.innerHTML = '';
+    list.forEach(r => {
+      const d = document.createElement('div'); d.style.padding='8px'; d.style.borderBottom='1px solid #f1f5f9';
+      d.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <strong>${r.invoiceNo}</strong> <span class='small'>• ${new Date(r.date).toLocaleString()}</span>
+            <div class='small'>${r.customer && r.customer.name ? r.customer.name+' • '+r.customer.mobile : 'No customer'}</div>
+          </div>
+          <div style='display:flex;gap:8px'>
+            <button class='btn' data-inv='${r.invoiceNo}' data-action='viewPublic'>View</button>
+            <button class='btn' data-inv='${r.invoiceNo}' data-action='editPublic'>Edit</button>
+            <button class='btn' data-inv='${r.invoiceNo}' data-action='deletePublic'>Delete</button>
+            <button class='btn' data-inv='${r.invoiceNo}' data-action='pdfPublic'>PDF</button>
+            <button class='btn' data-inv='${r.invoiceNo}' data-action='csvPublic'>Excel</button>
+          </div>
+        </div>`;
+      container.appendChild(d);
+    });
+  } catch (e) {
+    console.error(e); container.innerHTML = '<div class="small">Error loading public invoices: '+e.message+'</div>';
+  }
+}
+
+async function viewPublicInvoiceEnhanced(invNo){
+  if (!firestore) { alert('Firebase not configured'); return; }
+  try {
+    const doc = await firestore.collection('public_invoices').doc(invNo).get();
+    if (!doc.exists) { alert('Not found'); return; }
+    const r = doc.data();
+    const html = renderPrintableHtmlForInvoice(r);
+    const w = openWindowWithContent(html);
+    if (w && w.document) {
+      setTimeout(()=>{ try { w.focus(); w.print(); } catch(e) { console.warn('print failed', e); } }, 250);
+    } else {
+      alert('Invoice opened. Use your browser menu -> Print -> Save as PDF to create a PDF.');
+    }
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function editPublicInvoiceEnhanced(invNo){
+  if (!firestore) { alert('Firebase not configured'); return; }
+  try {
+    const doc = await firestore.collection('public_invoices').doc(invNo).get();
+    if (!doc.exists) { alert('Not found'); return; }
+    const r = doc.data();
+    cart = r.products.map(p=>({id:p.id,name:p.name,price:p.price,qty:p.qty,sku:p.sku}));
+    settings.discount = r.settings?.discount || 0;
+    settings.discountType = r.settings?.discountType || 'flat';
+    settings.tax = r.settings?.tax || 0;
+    settings.advance = r.settings?.advance || 0;
+    document.getElementById('discount').value = settings.discount; document.getElementById('discountType').value = settings.discountType; document.getElementById('tax').value = settings.tax;
+    document.getElementById('advanceInput').value = settings.advance;
+    document.getElementById('customerName').value = r.customer?.name || '';
+    document.getElementById('customerMobile').value = r.customer?.mobile || '';
+    document.getElementById('invoiceNo').innerText = r.invoiceNo;
+    renderCart();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    alert('Public invoice loaded into editor. Make changes and Save & Publish to overwrite (if your rules allow).');
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function deletePublicInvoiceEnhanced(invNo){
+  if (!firestore) { alert('Firebase not configured'); return; }
+  if (!confirm('Delete public invoice '+invNo+'? This removes it from the public list.')) return;
+  try {
+    await firestore.collection('public_invoices').doc(invNo).delete();
+    alert('Public invoice deleted.');
+    loadPublicInvoicesEnhanced();
+  } catch (e) { alert('Delete failed: '+e.message); }
+}
+
+async function downloadPublicPDFEnhanced(invNo){
+  if (!firestore) { alert('Firebase not configured'); return; }
+  try {
+    const doc = await firestore.collection('public_invoices').doc(invNo).get();
+    if (!doc.exists) { alert('Not found'); return; }
+    const r = doc.data();
+    const html = renderPrintableHtmlForInvoice(r);
+    const w = openWindowWithContent(html, `invoice-${invNo}.html`);
+    if (w && w.document) {
+      setTimeout(()=>{ try { w.focus(); w.print(); } catch(e){ console.warn(e); } }, 300);
+    } else {
+      alert('Invoice opened. Use your browser menu -> Print -> Save as PDF to create a PDF.');
+    }
+  } catch (e) { alert('Error: '+e.message); }
+}
+
+async function downloadPublicCSVEnhanced(invNo){
+  if (!firestore) { alert('Firebase not configured'); return; }
+  try {
+    const doc = await firestore.collection('public_invoices').doc(invNo).get();
+    if (!doc.exists) { alert('Not found'); return; }
+    const r = doc.data();
+    const rows = [];
+    rows.push(['Invoice', r.invoiceNo]);
+    rows.push(['Date', new Date(r.date).toLocaleString()]);
+    rows.push(['Customer', r.customer?.name || '', 'Mobile', r.customer?.mobile || '']);
+    rows.push([]);
+    rows.push(['Item','Qty','Unit Price','Total']);
+    r.products.forEach(p => { rows.push([p.name, p.qty, p.price.toFixed(2), (p.price * p.qty).toFixed(2)]); });
+    rows.push([]);
+    const totals = r.totals || {};
+    rows.push(['Subtotal', totals.subtotal?.toFixed(2) || '0.00']);
+    rows.push(['Tax', totals.tax?.toFixed(2) || '0.00']);
+    rows.push(['Total', totals.total?.toFixed(2) || '0.00']);
+    rows.push(['Advance', totals.advance?.toFixed(2) || '0.00']);
+    rows.push(['Balance', totals.balance?.toFixed(2) || '0.00']);
+    const csv = rows.map(rw => rw.map(cell => { if (cell === null || cell === undefined) return ''; const s = String(cell).replace(/"/g, '""'); return `"${s}"`; }).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `invoice-${invNo}.csv`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),10000);
+  } catch (e) { alert('Error: '+e.message); }
+}
+
+// helper to produce printable HTML for an invoice object (reused)
+function renderPrintableHtmlForInvoice(r) {
+  const itemsHtml = (r.products || []).map(p => `<div style="display:flex;justify-content:space-between;padding:6px 0"><div>${p.name} x ${p.qty}</div><div>₹ ${(p.price*p.qty).toFixed(2)}</div></div>`).join('');
+  const totals = r.totals || {};
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${r.invoiceNo}</title>
+    <style>body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:12px}h2{margin:0 0 8px} .small{color:#666;font-size:13px}</style>
+    </head><body>
+    <h2>Invoice: ${r.invoiceNo}</h2>
+    <div class="small">${new Date(r.date).toLocaleString()}</div>
+    <div style="margin-top:8px">${r.customer?.name || ''} ${r.customer?.mobile ? ' • ' + r.customer.mobile : ''}</div>
+    <hr/>
+    ${itemsHtml}
+    <hr/>
+    <div style="text-align:right">
+      <div>Subtotal: ₹ ${(totals.subtotal||0).toFixed(2)}</div>
+      <div>Tax: ₹ ${(totals.tax||0).toFixed(2)}</div>
+      <div style="font-weight:700">Total: ₹ ${(totals.total||0).toFixed(2)}</div>
+      <div>Advance: ₹ ${(totals.advance||0).toFixed(2)}</div>
+      <div style="font-size:18px;margin-top:6px">Balance: ₹ ${(totals.balance||0).toFixed(2)}</div>
+    </div>
+    </body></html>`;
+}
+
+// Delegated public action handler
+document.addEventListener('click', (e)=>{
+  const btn = e.target.closest('button[data-action]');
+  if(!btn) return;
+  const inv = btn.dataset.inv; const act = btn.dataset.action;
+  if(act==='viewPublic') viewPublicInvoiceEnhanced(inv);
+  else if(act==='editPublic') editPublicInvoiceEnhanced(inv);
+  else if(act==='deletePublic') deletePublicInvoiceEnhanced(inv);
+  else if(act==='pdfPublic') downloadPublicPDFEnhanced(inv);
+  else if(act==='csvPublic') downloadPublicCSVEnhanced(inv);
+});
+
+// Wire new UI: override some button listeners to enhanced functions
+window.addEventListener('load', ()=>{
+  // load products from storage and render
+  loadProductsFromStorage();
+  renderCatalog();
+  // replace public refresh handler if exists
+  const pr = document.getElementById('btnPublicRefresh'); if(pr){ pr.removeEventListener && pr.removeEventListener('click', loadPublicInvoices); pr.addEventListener('click', loadPublicInvoicesEnhanced); }
+  // also hook initial public load
+  const pubSearch = document.getElementById('publicSearch'); if(pubSearch){ pubSearch.addEventListener('keyup', (e)=>{ if(e.key==='Enter') loadPublicInvoicesEnhanced(); }); }
+  // override Save button in modal to enhanced save
+  const modalSave = document.getElementById('btnModalSave'); if(modalSave){ modalSave.removeEventListener && modalSave.removeEventListener('click', saveProductFromModal); modalSave.addEventListener('click', saveProductFromModalEnhanced); }
+});
+</script>
+
+</body></html>`); w.document.close(); w.focus(); w.onload = ()=> setTimeout(()=> w.print(),100); }
 function exportInvoice(){ const data = { invoiceNo:$('invoiceNo').innerText, date:new Date().toISOString(), customer:{name:$('customerName').value.trim(), mobile:$('customerMobile').value.trim()}, products:cart, settings}; const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`invoice-${$('invoiceNo').innerText||'untitled'}.json`; a.click(); }
 
 /* Add product modal handlers */
@@ -402,5 +962,285 @@ function init(){
 
 init();
 </script>
+
+<!-- Enhancement script: product edit/delete, public invoice actions, mobile popup fallback -->
+<script>
+// --- Persistence for products ---
+function loadProductsFromStorage(){
+  try{
+    const raw = localStorage.getItem('products_v1');
+    if(raw){
+      const arr = JSON.parse(raw);
+      if(Array.isArray(arr) && arr.length) {
+        products = arr.map(p=>({id:p.id,name:p.name,price:p.price,sku:p.sku}));
+      }
+    }
+  }catch(e){ console.warn('loadProducts error', e); }
+}
+function saveProductsToStorage(){
+  try{ localStorage.setItem('products_v1', JSON.stringify(products)); }catch(e){console.warn('saveProducts error', e);}
+}
+
+// Override renderCatalog to include Edit/Delete buttons for products
+function renderCatalog(filter=''){
+  const el = document.getElementById('productCatalog'); el.innerHTML = '';
+  const q = (filter||'').toLowerCase();
+  const list = products.filter(p => (p.name||'').toLowerCase().includes(q) || (p.sku||'').toLowerCase().includes(q));
+  list.forEach(p => {
+    const d = document.createElement('div'); d.style.padding='8px'; d.style.borderBottom='1px solid #f1f5f9';
+    const left = document.createElement('div'); left.innerHTML = `<strong>${p.name}</strong><div class='small'>₹ ${Number(p.price||0).toFixed(2)}${p.sku?(' • '+p.sku):''}</div>`;
+    const right = document.createElement('div');
+    // Add, Edit, Delete buttons
+    const btnAdd = document.createElement('button'); btnAdd.className='btn'; btnAdd.textContent='Add'; btnAdd.addEventListener('click', ()=>addToCart(p.id));
+    const btnEdit = document.createElement('button'); btnEdit.className='btn'; btnEdit.style.background='#f59e0b'; btnEdit.textContent='Edit'; btnEdit.addEventListener('click', ()=>openEditProductModal(p.id));
+    const btnDel = document.createElement('button'); btnDel.className='btn'; btnDel.style.background='#ef4444'; btnDel.textContent='Delete'; btnDel.addEventListener('click', ()=>deleteProduct(p.id));
+    // layout
+    const wrap = document.createElement('div'); wrap.style.display='flex'; wrap.style.gap='6px'; wrap.appendChild(btnAdd); wrap.appendChild(btnEdit); wrap.appendChild(btnDel);
+    right.appendChild(wrap);
+    const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='space-between'; row.style.alignItems='center'; row.appendChild(left); row.appendChild(right);
+    d.appendChild(row); el.appendChild(d);
+  });
+}
+
+// Product edit modal support: reuse the existing modal but indicate edit mode
+let editingProductId = null;
+function openEditProductModal(id){
+  const p = products.find(x=>x.id===id); if(!p) return alert('Product not found');
+  editingProductId = id;
+  document.getElementById('p_name').value = p.name;
+  document.getElementById('p_price').value = p.price;
+  document.getElementById('p_sku').value = p.sku||'';
+  document.getElementById('modal').style.display='flex';
+}
+function saveProductFromModalEnhanced(){
+  const name = document.getElementById('p_name').value.trim();
+  const price = Number(document.getElementById('p_price').value)||0;
+  const sku = document.getElementById('p_sku').value.trim();
+  if(!name || price<=0){ alert('Enter product name and price > 0'); return; }
+  if(editingProductId){
+    const p = products.find(x=>x.id===editingProductId);
+    if(p){ p.name = name; p.price = price; p.sku = sku; }
+    editingProductId = null;
+  } else {
+    const id = products.length? (Math.max(...products.map(p=>p.id))+1):1;
+    products.push({id,name,price,sku});
+  }
+  saveProductsToStorage();
+  closeAddProductModal();
+  renderCatalog();
+}
+
+// delete product
+function deleteProduct(id){
+  if(!confirm('Delete product? This will remove it from the catalog.')) return;
+  products = products.filter(p=>p.id!==id);
+  saveProductsToStorage();
+  renderCatalog();
+}
+
+// --- Mobile-friendly window open fallback ---
+function openWindowWithContent(html, filenameForBlob = null) {
+  try {
+    const w = window.open('', '_blank');
+    if (w && w.document) {
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      return w;
+    }
+  } catch (e) {
+    console.warn('window.open failed, falling back to blob:', e);
+  }
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  if (filenameForBlob) a.download = filenameForBlob;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  return null;
+}
+
+// --- Public invoices: view/edit/delete/pdf/csv ---
+async function loadPublicInvoicesEnhanced(){
+  const container = document.getElementById('publicList'); container.innerHTML = '<div class="small">Loading...</div>';
+  if (!firestore) { container.innerHTML = '<div class="small">Firebase not configured — public invoices unavailable.</div>'; return; }
+  try {
+    const snapshot = await firestore.collection('public_invoices').orderBy('publishedAt','desc').limit(200).get();
+    const q = document.getElementById('publicSearch').value.trim().toLowerCase();
+    const list = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      if (!q || (data.customer && data.customer.mobile && data.customer.mobile.includes(q)) || (data.invoiceNo && data.invoiceNo.toLowerCase().includes(q))) list.push(data);
+    });
+    if (!list.length) { container.innerHTML = '<div class="small">No public invoices found.</div>'; return; }
+    container.innerHTML = '';
+    list.forEach(r => {
+      const d = document.createElement('div'); d.style.padding='8px'; d.style.borderBottom='1px solid #f1f5f9';
+      d.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <strong>${r.invoiceNo}</strong> <span class='small'>• ${new Date(r.date).toLocaleString()}</span>
+            <div class='small'>${r.customer && r.customer.name ? r.customer.name+' • '+r.customer.mobile : 'No customer'}</div>
+          </div>
+          <div style='display:flex;gap:8px'>
+            <button class='btn' data-inv='${r.invoiceNo}' data-action='viewPublic'>View</button>
+            <button class='btn' data-inv='${r.invoiceNo}' data-action='editPublic'>Edit</button>
+            <button class='btn' data-inv='${r.invoiceNo}' data-action='deletePublic'>Delete</button>
+            <button class='btn' data-inv='${r.invoiceNo}' data-action='pdfPublic'>PDF</button>
+            <button class='btn' data-inv='${r.invoiceNo}' data-action='csvPublic'>Excel</button>
+          </div>
+        </div>`;
+      container.appendChild(d);
+    });
+  } catch (e) {
+    console.error(e); container.innerHTML = '<div class="small">Error loading public invoices: '+e.message+'</div>';
+  }
+}
+
+async function viewPublicInvoiceEnhanced(invNo){
+  if (!firestore) { alert('Firebase not configured'); return; }
+  try {
+    const doc = await firestore.collection('public_invoices').doc(invNo).get();
+    if (!doc.exists) { alert('Not found'); return; }
+    const r = doc.data();
+    const html = renderPrintableHtmlForInvoice(r);
+    const w = openWindowWithContent(html);
+    if (w && w.document) {
+      setTimeout(()=>{ try { w.focus(); w.print(); } catch(e) { console.warn('print failed', e); } }, 250);
+    } else {
+      alert('Invoice opened. Use your browser menu -> Print -> Save as PDF to create a PDF.');
+    }
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function editPublicInvoiceEnhanced(invNo){
+  if (!firestore) { alert('Firebase not configured'); return; }
+  try {
+    const doc = await firestore.collection('public_invoices').doc(invNo).get();
+    if (!doc.exists) { alert('Not found'); return; }
+    const r = doc.data();
+    cart = r.products.map(p=>({id:p.id,name:p.name,price:p.price,qty:p.qty,sku:p.sku}));
+    settings.discount = r.settings?.discount || 0;
+    settings.discountType = r.settings?.discountType || 'flat';
+    settings.tax = r.settings?.tax || 0;
+    settings.advance = r.settings?.advance || 0;
+    document.getElementById('discount').value = settings.discount; document.getElementById('discountType').value = settings.discountType; document.getElementById('tax').value = settings.tax;
+    document.getElementById('advanceInput').value = settings.advance;
+    document.getElementById('customerName').value = r.customer?.name || '';
+    document.getElementById('customerMobile').value = r.customer?.mobile || '';
+    document.getElementById('invoiceNo').innerText = r.invoiceNo;
+    renderCart();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    alert('Public invoice loaded into editor. Make changes and Save & Publish to overwrite (if your rules allow).');
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function deletePublicInvoiceEnhanced(invNo){
+  if (!firestore) { alert('Firebase not configured'); return; }
+  if (!confirm('Delete public invoice '+invNo+'? This removes it from the public list.')) return;
+  try {
+    await firestore.collection('public_invoices').doc(invNo).delete();
+    alert('Public invoice deleted.');
+    loadPublicInvoicesEnhanced();
+  } catch (e) { alert('Delete failed: '+e.message); }
+}
+
+async function downloadPublicPDFEnhanced(invNo){
+  if (!firestore) { alert('Firebase not configured'); return; }
+  try {
+    const doc = await firestore.collection('public_invoices').doc(invNo).get();
+    if (!doc.exists) { alert('Not found'); return; }
+    const r = doc.data();
+    const html = renderPrintableHtmlForInvoice(r);
+    const w = openWindowWithContent(html, `invoice-${invNo}.html`);
+    if (w && w.document) {
+      setTimeout(()=>{ try { w.focus(); w.print(); } catch(e){ console.warn(e); } }, 300);
+    } else {
+      alert('Invoice opened. Use your browser menu -> Print -> Save as PDF to create a PDF.');
+    }
+  } catch (e) { alert('Error: '+e.message); }
+}
+
+async function downloadPublicCSVEnhanced(invNo){
+  if (!firestore) { alert('Firebase not configured'); return; }
+  try {
+    const doc = await firestore.collection('public_invoices').doc(invNo).get();
+    if (!doc.exists) { alert('Not found'); return; }
+    const r = doc.data();
+    const rows = [];
+    rows.push(['Invoice', r.invoiceNo]);
+    rows.push(['Date', new Date(r.date).toLocaleString()]);
+    rows.push(['Customer', r.customer?.name || '', 'Mobile', r.customer?.mobile || '']);
+    rows.push([]);
+    rows.push(['Item','Qty','Unit Price','Total']);
+    r.products.forEach(p => { rows.push([p.name, p.qty, p.price.toFixed(2), (p.price * p.qty).toFixed(2)]); });
+    rows.push([]);
+    const totals = r.totals || {};
+    rows.push(['Subtotal', totals.subtotal?.toFixed(2) || '0.00']);
+    rows.push(['Tax', totals.tax?.toFixed(2) || '0.00']);
+    rows.push(['Total', totals.total?.toFixed(2) || '0.00']);
+    rows.push(['Advance', totals.advance?.toFixed(2) || '0.00']);
+    rows.push(['Balance', totals.balance?.toFixed(2) || '0.00']);
+    const csv = rows.map(rw => rw.map(cell => { if (cell === null || cell === undefined) return ''; const s = String(cell).replace(/"/g, '""'); return `"${s}"`; }).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `invoice-${invNo}.csv`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),10000);
+  } catch (e) { alert('Error: '+e.message); }
+}
+
+// helper to produce printable HTML for an invoice object (reused)
+function renderPrintableHtmlForInvoice(r) {
+  const itemsHtml = (r.products || []).map(p => `<div style="display:flex;justify-content:space-between;padding:6px 0"><div>${p.name} x ${p.qty}</div><div>₹ ${(p.price*p.qty).toFixed(2)}</div></div>`).join('');
+  const totals = r.totals || {};
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${r.invoiceNo}</title>
+    <style>body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:12px}h2{margin:0 0 8px} .small{color:#666;font-size:13px}</style>
+    </head><body>
+    <h2>Invoice: ${r.invoiceNo}</h2>
+    <div class="small">${new Date(r.date).toLocaleString()}</div>
+    <div style="margin-top:8px">${r.customer?.name || ''} ${r.customer?.mobile ? ' • ' + r.customer.mobile : ''}</div>
+    <hr/>
+    ${itemsHtml}
+    <hr/>
+    <div style="text-align:right">
+      <div>Subtotal: ₹ ${(totals.subtotal||0).toFixed(2)}</div>
+      <div>Tax: ₹ ${(totals.tax||0).toFixed(2)}</div>
+      <div style="font-weight:700">Total: ₹ ${(totals.total||0).toFixed(2)}</div>
+      <div>Advance: ₹ ${(totals.advance||0).toFixed(2)}</div>
+      <div style="font-size:18px;margin-top:6px">Balance: ₹ ${(totals.balance||0).toFixed(2)}</div>
+    </div>
+    </body></html>`;
+}
+
+// Delegated public action handler
+document.addEventListener('click', (e)=>{
+  const btn = e.target.closest('button[data-action]');
+  if(!btn) return;
+  const inv = btn.dataset.inv; const act = btn.dataset.action;
+  if(act==='viewPublic') viewPublicInvoiceEnhanced(inv);
+  else if(act==='editPublic') editPublicInvoiceEnhanced(inv);
+  else if(act==='deletePublic') deletePublicInvoiceEnhanced(inv);
+  else if(act==='pdfPublic') downloadPublicPDFEnhanced(inv);
+  else if(act==='csvPublic') downloadPublicCSVEnhanced(inv);
+});
+
+// Wire new UI: override some button listeners to enhanced functions
+window.addEventListener('load', ()=>{
+  // load products from storage and render
+  loadProductsFromStorage();
+  renderCatalog();
+  // replace public refresh handler if exists
+  const pr = document.getElementById('btnPublicRefresh'); if(pr){ pr.removeEventListener && pr.removeEventListener('click', loadPublicInvoices); pr.addEventListener('click', loadPublicInvoicesEnhanced); }
+  // also hook initial public load
+  const pubSearch = document.getElementById('publicSearch'); if(pubSearch){ pubSearch.addEventListener('keyup', (e)=>{ if(e.key==='Enter') loadPublicInvoicesEnhanced(); }); }
+  // override Save button in modal to enhanced save
+  const modalSave = document.getElementById('btnModalSave'); if(modalSave){ modalSave.removeEventListener && modalSave.removeEventListener('click', saveProductFromModal); modalSave.addEventListener('click', saveProductFromModalEnhanced); }
+});
+</script>
+
 </body>
 </html>
