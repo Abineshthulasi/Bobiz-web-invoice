@@ -185,7 +185,16 @@
 
 <script>
 // Insert your firebaseConfig object here if you use Firestore publish
-const firebaseConfig = window.firebaseConfig || null;
+const firebaseConfig = {
+  apiKey: "AIzaSyDbgBrXOpset_I_RLWgyxoiMEeM6AYPG6E",
+  authDomain: "invoice--web.firebaseapp.com",
+  projectId: "invoice--web",
+  storageBucket: "invoice--web.firebasestorage.app",
+  messagingSenderId: "696864322584",
+  appId: "1:696864322584:web:10b2f8064e8fba5834ff6d",
+  measurementId: "G-56EKJC17LK"
+};
+
 let firestore = null;
 if(firebaseConfig && firebaseConfig.projectId){
   try{ firebase.initializeApp(firebaseConfig); firestore = firebase.firestore(); console.log('Firebase ready'); }catch(e){console.warn('Firebase init failed', e)}
