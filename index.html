@@ -26,6 +26,8 @@
     .right{text-align:right}
     .small{font-size:13px;color:var(--muted)}
     .product-list{max-height:180px;overflow:auto}
+    .modal{position:fixed;inset:0;background:rgba(2,6,23,0.45);display:none;align-items:center;justify-content:center}
+    .modal .sheet{width:420px;background:white;border-radius:10px;padding:16px}
     @media(max-width:980px){.grid{grid-template-columns:1fr;}.container{padding:8px}}
   </style>
 </head>
@@ -39,7 +41,7 @@
 
   <div class="container">
     <div class="grid">
-      <div class="card">
+      <div class="card" id="leftPanel">
         <h2>Customer & Products</h2>
 
         <label>Customer Name</label>
@@ -50,7 +52,7 @@
 
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
           <input id="search" placeholder="Search products..." style="flex:1;padding:8px;border:1px solid #e6e9ef;border-radius:8px"/>
-          <button class="btn" onclick="showAddProduct()">+ Add product</button>
+          <button class="btn" id="btnAddProduct">+ Add product</button>
         </div>
 
         <div class="card product-list" id="productCatalog"></div>
@@ -64,28 +66,28 @@
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px">
           <div class="muted">Invoice No.: <strong id="invoiceNo"></strong></div>
           <div class="actions">
-            <button class="btn" onclick="clearCart()">Clear</button>
-            <button class="btn" onclick="printInvoice()">Print / Save PDF</button>
-            <button class="btn" onclick="exportInvoice()">Export JSON</button>
+            <button class="btn" id="btnClear">Clear</button>
+            <button class="btn" id="btnPrint">Print / Save PDF</button>
+            <button class="btn" id="btnExport">Export JSON</button>
           </div>
         </div>
 
         <div style="margin-top:12px">
           <label>Advance Payment (₹):</label>
-          <input id="advanceInput" type="number" min="0" value="0" oninput="onAdvanceChange()"/>
+          <input id="advanceInput" type="number" min="0" value="0" />
         </div>
 
         <div style="margin-top:12px;display:flex;gap:8px">
-          <button class="btn" onclick="saveInvoice()">Save Invoice (Local)</button>
-          <button class="btn" id="publishBtn" onclick="saveAndPublish()">Save & Publish (Public)</button>
-          <button class="btn" onclick="openHistory()">Open History</button>
+          <button class="btn" id="btnSaveLocal">Save Invoice (Local)</button>
+          <button class="btn" id="publishBtn">Save & Publish (Public)</button>
+          <button class="btn" id="btnHistory">Open History</button>
         </div>
 
         <div style="margin-top:8px" class="small">Public invoices will be visible to anyone who visits the site. Do not publish sensitive info.</div>
 
       </div>
 
-      <div class="card">
+      <div class="card" id="rightPanel">
         <h2>Invoice Preview</h2>
         <div class="invoice" id="invoicePreview">
           <div style="display:flex;justify-content:space-between;align-items:center">
@@ -124,8 +126,8 @@
         <input id="tax" value="0"/>
 
         <div style="margin-top:12px;display:flex;gap:8px">
-          <button class="btn" onclick="applySettings()">Apply</button>
-          <button class="btn" onclick="randomizeInvoice()">New Invoice No.</button>
+          <button class="btn" id="btnApply">Apply</button>
+          <button class="btn" id="btnNewInv">New Invoice No.</button>
         </div>
 
         <div style="margin-top:12px" class="small">Tip: change advance in the left panel or edit it here and click Apply — balance updates automatically.</div>
@@ -139,7 +141,7 @@
         <div class="small">This section lists invoices that have been published. It reads from the configured online database.</div>
         <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
           <input id="publicSearch" placeholder="Search public invoices by mobile or invoice no" style="flex:1;padding:8px;border:1px solid #e6e9ef;border-radius:8px"/>
-          <button class="btn" onclick="loadPublicInvoices()">Refresh</button>
+          <button class="btn" id="btnPublicRefresh">Refresh</button>
         </div>
         <div id="publicList" style="margin-top:12px;max-height:360px;overflow:auto"></div>
       </div>
@@ -147,72 +149,49 @@
 
   </div>
 
-  <!-- Hidden add product modal (simple) -->
-  <div id="modal" style="position:fixed;inset:0;background:rgba(2,6,23,0.45);display:none;align-items:center;justify-content:center">
-    <div style="width:420px;background:white;border-radius:10px;padding:16px">
-      <h3 style="margin-top:0">Add Product</h3>
-      <label>Name</label><input id="p_name" />
-      <label>Price</label><input id="p_price" type="number" />
-      <label>SKU (optional)</label><input id="p_sku" />
-      <div style="display:flex;justify-content:flex-end;margin-top:12px;gap:8px">
-        <button class="btn" onclick="closeModal()">Cancel</button>
-        <button class="btn" onclick="saveProduct()">Save</button>
-      </div>
+  <!-- Add product modal -->
+  <div id="modal" class="modal"><div class="sheet">
+    <h3 style="margin-top:0">Add Product</h3>
+    <label>Name</label><input id="p_name" />
+    <label>Price</label><input id="p_price" type="number" />
+    <label>SKU (optional)</label><input id="p_sku" />
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;gap:8px">
+      <button class="btn" id="btnModalCancel">Cancel</button>
+      <button class="btn" id="btnModalSave">Save</button>
     </div>
-  </div>
+  </div></div>
 
   <!-- History modal -->
-  <div id="historyModal" style="position:fixed;inset:0;background:rgba(2,6,23,0.45);display:none;align-items:flex-start;justify-content:center;padding-top:40px;overflow:auto">
-    <div style="width:920px;max-width:96%;background:white;border-radius:10px;padding:16px">
+  <div id="historyModal" class="modal" style="align-items:flex-start;padding-top:40px;overflow:auto"><div class="sheet" style="width:920px;max-width:96%">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <h3 style="margin:0">Invoice History</h3>
-        <div><button class="btn" onclick="closeHistory()">Close</button></div>
+        <div><button class="btn" id="btnCloseHistory">Close</button></div>
       </div>
 
       <div style="display:flex;gap:8px;margin-top:12px">
         <input id="historyMobile" placeholder="Search by mobile number" />
         <input id="historyInvoiceNo" placeholder="Search by invoice no" />
-        <button class="btn" onclick="searchHistory()">Search</button>
-        <button class="btn" onclick="listAllHistory()">List All</button>
+        <button class="btn" id="btnSearchHistory">Search</button>
+        <button class="btn" id="btnListAll">List All</button>
         <div class="small" style="margin-left:auto">Data stored locally in your browser (localStorage) — and optionally published to your online database.</div>
       </div>
 
       <div id="historyResults" style="margin-top:12px;max-height:520px;overflow:auto"></div>
-    </div>
-  </div>
+  </div></div>
 
-  <!-- Firebase SDKs (compat build) -->
+  <!-- Firebase SDKs (compat build) - keep if you use publish feature -->
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
 
 <script>
-// ======= Firebase config (inserted) =======
-const firebaseConfig = {
-  apiKey: "AIzaSyDbgBrXOpset_I_RLWgyxoiMEeM6AYPG6E",
-  authDomain: "invoice--web.firebaseapp.com",
-  projectId: "invoice--web",
-  storageBucket: "invoice--web.firebasestorage.app",
-  messagingSenderId: "696864322584",
-  appId: "1:696864322584:web:10b2f8064e8fba5834ff6d",
-  measurementId: "G-56EKJC17LK"
-};
-
+// Insert your firebaseConfig object here if you use Firestore publish
+const firebaseConfig = window.firebaseConfig || null;
 let firestore = null;
-function initFirebaseIfConfigured(){
-  if(!firebaseConfig || !firebaseConfig.projectId || firebaseConfig.projectId === 'YOUR_PROJECT_ID'){
-    console.log('Firebase not configured. Public publish disabled.');
-    document.getElementById('publishBtn').disabled = false;
-    return;
-  }
-  try{
-    firebase.initializeApp(firebaseConfig);
-    firestore = firebase.firestore();
-    console.log('Firebase initialized.');
-  }catch(e){ console.error('Firebase init error', e); }
+if(firebaseConfig && firebaseConfig.projectId){
+  try{ firebase.initializeApp(firebaseConfig); firestore = firebase.firestore(); console.log('Firebase ready'); }catch(e){console.warn('Firebase init failed', e)}
 }
-initFirebaseIfConfigured();
 
-// App code
+// App state
 let products = [
   {id:1,name:'Product A',price:199.00,sku:'A001'},
   {id:2,name:'Product B',price:349.00,sku:'B001'},
@@ -221,76 +200,171 @@ let products = [
 let cart = [];
 let settings = {discount:0,discountType:'flat',tax:0,advance:0};
 
-function $(id){return document.getElementById(id)}
+// Helpers
+const $ = id => document.getElementById(id);
+function format(v){ return '₹ '+Number(v||0).toFixed(2); }
 
+// Render functions
 function renderCatalog(filter=''){
-  const el = $('productCatalog');el.innerHTML='';
-  const list = products.filter(p=>p.name.toLowerCase().includes(filter.toLowerCase())|| (p.sku||'').toLowerCase().includes(filter.toLowerCase()));
-  list.forEach(p=>{
-    const d = document.createElement('div');
-    d.style.padding='8px';d.style.borderBottom='1px solid #f1f5f9';
-    d.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><div><strong>${p.name}</strong><div class='small'>₹ ${p.price.toFixed(2)} ${p.sku? (' • '+p.sku):''}</div></div><div><button class='btn' onclick='addToCart(${p.id})'>Add</button></div></div>`;
-    el.appendChild(d);
+  const el = $('productCatalog'); el.innerHTML = '';
+  const list = products.filter(p => (p.name||'').toLowerCase().includes(filter.toLowerCase()) || (p.sku||'').toLowerCase().includes(filter.toLowerCase()));
+  list.forEach(p => {
+    const d = document.createElement('div'); d.style.padding='8px'; d.style.borderBottom='1px solid #f1f5f9';
+    const left = document.createElement('div'); left.innerHTML = `<strong>${p.name}</strong><div class='small'>${format(p.price)}${p.sku?(' • '+p.sku):''}</div>`;
+    const right = document.createElement('div'); const btn = document.createElement('button'); btn.className='btn'; btn.textContent='Add'; btn.addEventListener('click', ()=>addToCart(p.id)); right.appendChild(btn);
+    const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='space-between'; row.style.alignItems='center'; row.appendChild(left); row.appendChild(right);
+    d.appendChild(row); el.appendChild(d);
   });
 }
 
 function renderCart(){
-  const tbody = $('cartTable').querySelector('tbody');tbody.innerHTML='';
+  const tbody = $('cartTable').querySelector('tbody'); tbody.innerHTML='';
   cart.forEach((it,idx)=>{
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${it.name}</td><td><input type='number' min='1' value='${it.qty}' style='width:72px' onchange='updateQty(${idx}, this.value)' /></td><td>₹ ${it.price.toFixed(2)}</td><td class='right'>₹ ${(it.price*it.qty).toFixed(2)}</td><td><button onclick='removeItem(${idx})' class='btn'>Remove</button></td>`;
+    const tdName = document.createElement('td'); tdName.textContent = it.name;
+    const tdQty = document.createElement('td'); const q = document.createElement('input'); q.type='number'; q.min=1; q.value=it.qty; q.style.width='72px'; q.addEventListener('change', (e)=>{ updateQty(idx, e.target.value); }); tdQty.appendChild(q);
+    const tdPrice = document.createElement('td'); tdPrice.textContent = format(it.price);
+    const tdTotal = document.createElement('td'); tdTotal.className='right'; tdTotal.textContent = format(it.price*it.qty);
+    const tdAction = document.createElement('td'); const rb = document.createElement('button'); rb.className='btn'; rb.textContent='Remove'; rb.addEventListener('click', ()=>removeItem(idx)); tdAction.appendChild(rb);
+    tr.appendChild(tdName); tr.appendChild(tdQty); tr.appendChild(tdPrice); tr.appendChild(tdTotal); tr.appendChild(tdAction);
     tbody.appendChild(tr);
   });
   renderPreview();
 }
 
-function addToCart(id){
-  const p = products.find(x=>x.id===id); if(!p) return;
-  const existing = cart.find(x=>x.id===id);
-  if(existing) existing.qty +=1; else cart.push({...p,qty:1});
-  renderCart();
-}
+function addToCart(id){ const p = products.find(x=>x.id===id); if(!p) return; const ex = cart.find(x=>x.id===id); if(ex) ex.qty+=1; else cart.push({...p,qty:1}); renderCart(); }
 function updateQty(i,val){ cart[i].qty = Math.max(1, Number(val)); renderCart(); }
 function removeItem(i){ cart.splice(i,1); renderCart(); }
 function clearCart(){ cart=[]; renderCart(); }
 
 function computeTotals(){
-  let subtotal = 0;
-  cart.forEach(it=> subtotal += it.price*it.qty);
-  let discount = Number(settings.discount)||0;
-  if(settings.discountType==='percent') discount = subtotal * (discount/100);
-  let taxable = subtotal - discount;
-  let tax = taxable * ((Number(settings.tax)||0)/100);
-  const total = subtotal - discount + tax;
-  const advance = Number(settings.advance)||0;
-  let balance = total - advance; if(balance < 0) balance = 0;
+  let subtotal = 0; cart.forEach(it=> subtotal += it.price*it.qty);
+  let discount = Number(settings.discount)||0; if(settings.discountType==='percent') discount = subtotal*(discount/100);
+  let taxable = subtotal - discount; let tax = taxable * ((Number(settings.tax)||0)/100);
+  const total = subtotal - discount + tax; const advance = Number(settings.advance)||0; let balance = total - advance; if(balance<0) balance=0;
   return {subtotal,discount,tax,total,advance,balance};
 }
 
 function renderPreview(){
   $('previewDate').innerText = new Date().toLocaleString();
-  $('previewInv').innerText = $('invoiceNo').innerText;
-  const customer = $('customerName').value.trim() + ( $('customerMobile').value.trim() ? (' • ' + $('customerMobile').value.trim()) : '');
+  $('previewInv').innerText = $('invoiceNo').innerText || '';
+  const customer = $('customerName').value.trim() + ($('customerMobile').value.trim() ? (' • ' + $('customerMobile').value.trim()) : '');
   $('previewCustomer').innerText = customer || '-';
-
-  const li = $('lineItems'); li.innerHTML='';
+  const li = $('lineItems'); li.innerHTML = '';
   cart.forEach(it=>{
-    const row = document.createElement('div');
-    row.style.display='flex';row.style.justifyContent='space-between';row.style.padding='6px 0';
-    const left = document.createElement('div');left.innerHTML = `<strong>${it.name}</strong><div class='small'>Qty: ${it.qty} • ₹ ${it.price.toFixed(2)}</div>`;
-    const right = document.createElement('div'); right.innerHTML = `₹ ${(it.price*it.qty).toFixed(2)}`;
-    row.appendChild(left);row.appendChild(right);li.appendChild(row);
+    const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='space-between'; row.style.padding='6px 0';
+    row.innerHTML = `<div><strong>${it.name}</strong><div class='small'>Qty: ${it.qty} • ${format(it.price)}</div></div><div>${format(it.price*it.qty)}</div>`;
+    li.appendChild(row);
   });
-
   const t = computeTotals();
-  $('subTotal').innerText = '₹ '+t.subtotal.toFixed(2);
-  $('discountVal').innerText = '₹ '+t.discount.toFixed(2);
-  $('taxVal').innerText = '₹ '+t.tax.toFixed(2);
-  $('totalVal').innerText = '₹ '+t.total.toFixed(2);
-  $('advanceVal').innerText = '₹ '+t.advance.toFixed(2);
-  $('balanceVal').innerText = '₹ '+t.balance.toFixed(2);
+  $('subTotal').innerText = format(t.subtotal);
+  $('discountVal').innerText = format(t.discount);
+  $('taxVal').innerText = format(t.tax);
+  $('totalVal').innerText = format(t.total);
+  $('advanceVal').innerText = format(t.advance);
+  $('balanceVal').innerText = format(t.balance);
 }
 
-function showAddProduct(){ $('modal').style.display='flex'; }
-function closeModal(){ $('modal').style.display='none'; $('p_name').value='';$('p_price').value='';$('p_sku').value=''; }
-function saveProduct(){\n  const name = $('p_name').value.trim(); const price = Number($('p_price').value)||0; const sku = $('p_sku').value.trim();\n  if(!name || price<=0){ alert('Enter product name and price > 0'); return; }\n  const id = products.length? (Math.max(...products.map(p=>p.id))+1):1;\n  products.push({id,name,price,sku}); closeModal(); renderCatalog();\n}\n\nfunction applySettings(){ settings.discount = Number($('discount').value)||0; settings.discountType = $('discountType').value; settings.tax = Number($('tax').value)||0; settings.advance = Number($('advanceInput').value)||0; renderPreview(); }\n\nfunction onAdvanceChange(){ settings.advance = Number($('advanceInput').value)||0; renderPreview(); }\n\n// Local storage helpers\nfunction loadInvoices(){\n  try{ return JSON.parse(localStorage.getItem('invoices_v1')||'[]'); }catch(e){ return []; }\n}\nfunction saveInvoices(arr){ localStorage.setItem('invoices_v1', JSON.stringify(arr)); }\n\nfunction saveInvoice(){\n  const mobile = $('customerMobile').value.trim();\n  const name = $('customerName').value.trim();\n  if(!mobile){ if(!confirm('Save without customer mobile? This invoice will not be associated with a customer. Continue?')) return; }\n  const invNo = $('invoiceNo').innerText || ('INV'+Date.now().toString().slice(-8));\n  const t = computeTotals();\n  const record = {\n    invoiceNo: invNo,\n    date: new Date().toISOString(),\n    customer: {name, mobile},\n    products: cart.map(p=>({id:p.id,name:p.name,price:p.price,qty:p.qty,sku:p.sku})),\n    settings: {...settings, discount: Number(settings.discount)||0, tax: Number(settings.tax)||0, advance: Number(settings.advance)||0},\n    totals: t\n  };\n  let arr = loadInvoices();\n  // replace if same invoiceNo\n  const existingIndex = arr.findIndex(x=>x.invoiceNo === invNo);\n  if(existingIndex>=0) arr[existingIndex] = record; else arr.unshift(record);\n  saveInvoices(arr);\n  // also save customer quicklist\n  if(mobile){\n    const customers = loadCustomers();\n    customers[mobile] = {name, mobile, lastInvoice: invNo, lastSeen: new Date().toISOString()};\n    saveCustomers(customers);\n  }\n  alert('Invoice saved locally.');\n}\n\nfunction loadCustomers(){ try{ return JSON.parse(localStorage.getItem('customers_v1')||'{}'); }catch(e){ return {}; } }\nfunction saveCustomers(obj){ localStorage.setItem('customers_v1', JSON.stringify(obj)); }\n\nfunction openHistory(){ $('historyModal').style.display='flex'; listAllHistory(); }\nfunction closeHistory(){ $('historyModal').style.display='none'; }\n\nfunction listAllHistory(){ const arr = loadInvoices(); renderHistoryResults(arr); }\n\nfunction searchHistory(){ const mobile = $('historyMobile').value.trim(); const inv = $('historyInvoiceNo').value.trim(); const arr = loadInvoices(); let results = arr;\n  if(mobile) results = results.filter(r=>r.customer && r.customer.mobile && r.customer.mobile.includes(mobile));\n  if(inv) results = results.filter(r=>r.invoiceNo && r.invoiceNo.includes(inv));\n  renderHistoryResults(results);\n}\n\nfunction renderHistoryResults(results){\n  const el = $('historyResults'); el.innerHTML='';\n  if(!results.length){ el.innerHTML = '<div class=\"small\">No invoices found.</div>'; return; }\n  results.forEach(r=>{\n    const d = document.createElement('div'); d.style.padding='8px'; d.style.borderBottom='1px solid #f1f5f9';\n    d.innerHTML = `<div style=\"display:flex;justify-content:space-between;align-items:center\"><div><strong>${r.invoiceNo}</strong> <span class='small'>• ${new Date(r.date).toLocaleString()}</span><div class='small'>${r.customer && r.customer.name ? r.customer.name+' • '+r.customer.mobile : 'No customer' }</div></div><div style='display:flex;gap:8px'><button class='btn' onclick='loadInvoice(\"${r.invoiceNo}\")'>Load</button><button class='btn' onclick='downloadInvoice(\"${r.invoiceNo}\")'>Download</button><button class='btn' onclick='deleteInvoice(\"${r.invoiceNo}\")'>Delete</button></div></div>`;\n    el.appendChild(d);\n  });\n}\n\nfunction loadInvoice(invNo){ const arr = loadInvoices(); const r = arr.find(x=>x.invoiceNo===invNo); if(!r){ alert('Invoice not found'); return; }\n  // restore\n  cart = r.products.map(p=>({id:p.id,name:p.name,price:p.price,qty:p.qty,sku:p.sku}));\n  settings.discount = r.settings.discount||0; settings.discountType = r.settings.discountType||'flat'; settings.tax = r.settings.tax||0; settings.advance = r.settings.advance||0;\n  $('discount').value = settings.discount; $('discountType').value = settings.discountType; $('tax').value = settings.tax; $('advanceInput').value = settings.advance;\n  $('customerName').value = (r.customer && r.customer.name) || ''; $('customerMobile').value = (r.customer && r.customer.mobile) || '';\n  $('invoiceNo').innerText = r.invoiceNo; renderCart(); closeHistory(); alert('Invoice loaded into editor.');\n}\n\nfunction downloadInvoice(invNo){ const arr = loadInvoices(); const r = arr.find(x=>x.invoiceNo===invNo); if(!r) return alert('Not found'); const blob = new Blob([JSON.stringify(r,null,2)],{type:'application/json'}); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `invoice-${invNo}.json`; a.click(); }\n\nfunction deleteInvoice(invNo){ if(!confirm('Delete invoice '+invNo+'? This cannot be undone.')) return; let arr = loadInvoices(); arr = arr.filter(x=>x.invoiceNo!==invNo); saveInvoices(arr); listAllHistory(); }\n\n// ===== Online publish functions (Firestore) =====\nasync function saveAndPublish(){\n  // save locally first\n  saveInvoice();\n  if(!firestore){\n    if(confirm('Firebase is not configured in this file. Do you want instructions to configure and publish online?')){\n      alert('Create a Firebase project and paste the config in the top of the file. Then reload this page.');\n    }\n    return;\n  }\n\n  const invNo = $('invoiceNo').innerText || ('INV'+Date.now().toString().slice(-8));\n  const mobile = $('customerMobile').value.trim();\n  const name = $('customerName').value.trim();\n  const t = computeTotals();\n  const doc = {\n    invoiceNo: invNo,\n    date: new Date().toISOString(),\n    customer: {name, mobile},\n    products: cart.map(p=>({id:p.id,name:p.name,price:p.price,qty:p.qty,sku:p.sku})),\n    settings: {...settings, discount: Number(settings.discount)||0, tax: Number(settings.tax)||0, advance: Number(settings.advance)||0},\n    totals: t,\n    publishedAt: new Date().toISOString()\n  };\n\n  try{\n    await firestore.collection('public_invoices').doc(invNo).set(doc);\n    alert('Invoice published publicly.');\n    loadPublicInvoices();\n  }catch(e){ console.error(e); alert('Publish failed: '+e.message); }\n}\n\nasync function loadPublicInvoices(){\n  const container = $('publicList'); container.innerHTML = '<div class=\"small\">Loading...</div>';\n  if(!firestore){ container.innerHTML = '<div class=\"small\">Firebase not configured — public invoices unavailable.</div>'; return; }\n  try{\n    const snapshot = await firestore.collection('public_invoices').orderBy('publishedAt','desc').limit(200).get();\n    const q = $('publicSearch').value.trim().toLowerCase();\n    const list = [];\n    snapshot.forEach(doc=>{\n      const data = doc.data();\n      if(!q || (data.customer && data.customer.mobile && data.customer.mobile.includes(q)) || (data.invoiceNo && data.invoiceNo.toLowerCase().includes(q))) list.push(data);\n    });\n    if(!list.length){ container.innerHTML = '<div class=\"small\">No public invoices found.</div>'; return; }\n    container.innerHTML = '';\n    list.forEach(r=>{\n      const d = document.createElement('div'); d.style.padding='8px'; d.style.borderBottom='1px solid #f1f5f9';\n      d.innerHTML = `<div style=\"display:flex;justify-content:space-between;align-items:center\"><div><strong>${r.invoiceNo}</strong> <span class='small'>• ${new Date(r.date).toLocaleString()}</span><div class='small'>${r.customer && r.customer.name ? r.customer.name+' • '+r.customer.mobile : 'No customer' }</div></div><div style='display:flex;gap:8px'><button class='btn' onclick='viewPublicInvoice(\"${r.invoiceNo}\")'>View</button></div></div>`;\n      container.appendChild(d);\n    });\n  }catch(e){ console.error(e); container.innerHTML = '<div class=\"small\">Error loading public invoices: '+e.message+'</div>'; }\n}\n\nasync function viewPublicInvoice(invNo){ if(!firestore){ alert('Firebase not configured'); return; }\n  try{\n    const doc = await firestore.collection('public_invoices').doc(invNo).get();\n    if(!doc.exists){ alert('Not found'); return; }\n    const r = doc.data();\n    // show in new window as printable invoice\n    const w = window.open('','_blank');\n    const content = `\n      <div style=\"font-family:Inter,Arial;max-width:700px;margin:20px auto;padding:12px;border:1px solid #eee\">\n        <h2>${r.invoiceNo}</h2>\n        <div>${r.customer && r.customer.name ? r.customer.name : ''} ${r.customer && r.customer.mobile ? ' • ' + r.customer.mobile : ''}</div>\n        <hr/>\n        <div>` + r.products.map(p=>`<div style='display:flex;justify-content:space-between'><div>${p.name} x ${p.qty}</div><div>₹ ${(p.price*p.qty).toFixed(2)}</div></div>`).join('') + `</div>\n        <hr/>\n        <div style='text-align:right'><div>Subtotal: ₹ ${r.totals.subtotal.toFixed(2)}</div><div>Tax: ₹ ${r.totals.tax.toFixed(2)}</div><div style='font-weight:700'>Total: ₹ ${r.totals.total.toFixed(2)}</div></div>\n      </div>\n    `;\n    w.document.write(`<!doctype html><html><head><meta charset='utf-8'><title>${invNo}</title></head><body>${content}</body></html>`);\n    w.document.close();\n  }catch(e){ alert('Error: '+e.message); }\n}\n\n// Init\nfunction randomizeInvoice(){ const n = 'INV'+Date.now().toString().slice(-8); $('invoiceNo').innerText=n; $('previewInv').innerText=n; }\n\nfunction init(){ renderCatalog(); renderCart(); randomizeInvoice(); $('search').addEventListener('input', e=>renderCatalog(e.target.value)); $('publicSearch').addEventListener('keyup', e=>{ if(e.key==='Enter') loadPublicInvoices(); }); $('advanceInput').addEventListener('input', onAdvanceChange); $('publishBtn').disabled = false; }\n\ninit();\n</script>\n</body>\n</html>
+// Local storage
+function loadInvoices(){ try{ return JSON.parse(localStorage.getItem('invoices_v1')||'[]'); }catch(e){ return []; } }
+function saveInvoices(arr){ localStorage.setItem('invoices_v1', JSON.stringify(arr)); }
+function loadCustomers(){ try{ return JSON.parse(localStorage.getItem('customers_v1')||'{}'); }catch(e){ return {}; } }
+function saveCustomers(obj){ localStorage.setItem('customers_v1', JSON.stringify(obj)); }
+
+function saveInvoice(){
+  const mobile = $('customerMobile').value.trim(); const name = $('customerName').value.trim();
+  if(!mobile){ if(!confirm('Save without customer mobile? This invoice will not be associated with a customer. Continue?')) return; }
+  const invNo = $('invoiceNo').innerText || ('INV'+Date.now().toString().slice(-8));
+  const t = computeTotals();
+  const record = { invoiceNo: invNo, date: new Date().toISOString(), customer:{name,mobile}, products: cart.map(p=>({id:p.id,name:p.name,price:p.price,qty:p.qty,sku:p.sku})), settings:{...settings, discount:Number(settings.discount)||0, tax:Number(settings.tax)||0, advance:Number(settings.advance)||0}, totals:t };
+  let arr = loadInvoices(); const idx = arr.findIndex(x=>x.invoiceNo===invNo); if(idx>=0) arr[idx]=record; else arr.unshift(record); saveInvoices(arr);
+  if(mobile){ const c = loadCustomers(); c[mobile] = {name,mobile,lastInvoice:invNo,lastSeen:new Date().toISOString()}; saveCustomers(c); }
+  alert('Invoice saved locally.');
+}
+
+function openHistory(){ $('historyModal').style.display='flex'; listAllHistory(); }
+function closeHistory(){ $('historyModal').style.display='none'; }
+function listAllHistory(){ renderHistoryResults(loadInvoices()); }
+function searchHistory(){ const mobile=$('historyMobile').value.trim(); const inv=$('historyInvoiceNo').value.trim(); let res=loadInvoices(); if(mobile) res=res.filter(r=>r.customer&&r.customer.mobile&&r.customer.mobile.includes(mobile)); if(inv) res=res.filter(r=>r.invoiceNo&&r.invoiceNo.includes(inv)); renderHistoryResults(res); }
+function renderHistoryResults(results){ const el=$('historyResults'); el.innerHTML=''; if(!results.length){ el.innerHTML='<div class="small">No invoices found.</div>'; return; } results.forEach(r=>{ const d=document.createElement('div'); d.style.padding='8px'; d.style.borderBottom='1px solid #f1f5f9'; d.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><div><strong>${r.invoiceNo}</strong> <span class='small'>• ${new Date(r.date).toLocaleString()}</span><div class='small'>${r.customer&&r.customer.name? r.customer.name+' • '+r.customer.mobile : 'No customer'}</div></div><div style='display:flex;gap:8px'><button class='btn' data-inv='${r.invoiceNo}' data-action='load'>Load</button><button class='btn' data-inv='${r.invoiceNo}' data-action='download'>Download</button><button class='btn' data-inv='${r.invoiceNo}' data-action='delete'>Delete</button></div></div>`; el.appendChild(d); });
+}
+
+// History button actions (delegated)
+$('historyResults')?.addEventListener('click', (e)=>{
+  const b = e.target.closest('button'); if(!b) return; const inv = b.dataset.inv; const action = b.dataset.action;
+  if(action==='load') loadInvoice(inv);
+  if(action==='download') downloadInvoice(inv);
+  if(action==='delete') deleteInvoice(inv);
+});
+
+function loadInvoice(invNo){ const arr = loadInvoices(); const r = arr.find(x=>x.invoiceNo===invNo); if(!r){ alert('Invoice not found'); return; } cart = r.products.map(p=>({id:p.id,name:p.name,price:p.price,qty:p.qty,sku:p.sku})); settings.discount=r.settings.discount||0; settings.discountType=r.settings.discountType||'flat'; settings.tax=r.settings.tax||0; settings.advance=r.settings.advance||0; $('discount').value=settings.discount; $('discountType').value=settings.discountType; $('tax').value=settings.tax; $('advanceInput').value=settings.advance; $('customerName').value=r.customer?.name||''; $('customerMobile').value=r.customer?.mobile||''; $('invoiceNo').innerText=r.invoiceNo; renderCart(); closeHistory(); alert('Invoice loaded into editor.'); }
+function downloadInvoice(invNo){ const arr=loadInvoices(); const r=arr.find(x=>x.invoiceNo===invNo); if(!r) return alert('Not found'); const blob=new Blob([JSON.stringify(r,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`invoice-${invNo}.json`; a.click(); }
+function deleteInvoice(invNo){ if(!confirm('Delete invoice '+invNo+'? This cannot be undone.')) return; let arr=loadInvoices(); arr=arr.filter(x=>x.invoiceNo!==invNo); saveInvoices(arr); listAllHistory(); }
+
+// Publish (Firestore)
+async function saveAndPublish(){ saveInvoice(); if(!firestore){ alert('Firebase not configured. Configure firebaseConfig in the file to publish online.'); return; } const invNo = $('invoiceNo').innerText || ('INV'+Date.now().toString().slice(-8)); const doc = { invoiceNo: invNo, date: new Date().toISOString(), customer:{name:$('customerName').value.trim(), mobile:$('customerMobile').value.trim()}, products: cart.map(p=>({id:p.id,name:p.name,price:p.price,qty:p.qty,sku:p.sku})), settings:{...settings, discount:Number(settings.discount)||0, tax:Number(settings.tax)||0, advance:Number(settings.advance)||0}, totals: computeTotals(), publishedAt: new Date().toISOString() };
+try{ await firestore.collection('public_invoices').doc(invNo).set(doc); alert('Invoice published publicly.'); loadPublicInvoices(); }catch(e){ console.error(e); alert('Publish failed: '+e.message); } }
+async function loadPublicInvoices(){ const container=$('publicList'); container.innerHTML='<div class="small">Loading...</div>'; if(!firestore){ container.innerHTML='<div class="small">Firebase not configured — public invoices unavailable.</div>'; return;} try{ const snapshot = await firestore.collection('public_invoices').orderBy('publishedAt','desc').limit(200).get(); const q = $('publicSearch').value.trim().toLowerCase(); const list = []; snapshot.forEach(doc=>{ const data=doc.data(); if(!q|| (data.customer&&data.customer.mobile&&data.customer.mobile.includes(q)) || (data.invoiceNo&&data.invoiceNo.toLowerCase().includes(q))) list.push(data); }); if(!list.length){ container.innerHTML='<div class="small">No public invoices found.</div>'; return;} container.innerHTML=''; list.forEach(r=>{ const d=document.createElement('div'); d.style.padding='8px'; d.style.borderBottom='1px solid #f1f5f9'; d.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center"><div><strong>${r.invoiceNo}</strong> <span class='small'>• ${new Date(r.date).toLocaleString()}</span><div class='small'>${r.customer&&r.customer.name? r.customer.name+' • '+r.customer.mobile : 'No customer'}</div></div><div style='display:flex;gap:8px'><button class='btn' data-inv='${r.invoiceNo}' data-action='viewPublic'>View</button></div></div>`; container.appendChild(d); }); }catch(e){ console.error(e); container.innerHTML='<div class="small">Error loading public invoices: '+e.message+'</div>'; } }
+
+document.addEventListener('click', (e)=>{
+  if(e.target && e.target.dataset && e.target.dataset.action==='viewPublic'){
+    const inv = e.target.dataset.inv; viewPublicInvoice(inv);
+  }
+});
+
+async function viewPublicInvoice(invNo){ if(!firestore){ alert('Firebase not configured'); return; } try{ const doc = await firestore.collection('public_invoices').doc(invNo).get(); if(!doc.exists){ alert('Not found'); return; } const r = doc.data(); const w = window.open('','_blank'); const content = `
+      <div style="font-family:Inter,Arial;max-width:700px;margin:20px auto;padding:12px;border:1px solid #eee">
+        <h2>${r.invoiceNo}</h2>
+        <div>${r.customer && r.customer.name ? r.customer.name : ''} ${r.customer && r.customer.mobile ? ' • ' + r.customer.mobile : ''}</div>
+        <hr/>
+        <div>` + r.products.map(p=>`<div style='display:flex;justify-content:space-between'><div>${p.name} x ${p.qty}</div><div>₹ ${(p.price*p.qty).toFixed(2)}</div></div>`).join('') + `</div>
+        <hr/>
+        <div style='text-align:right'><div>Subtotal: ₹ ${r.totals.subtotal.toFixed(2)}</div><div>Tax: ₹ ${r.totals.tax.toFixed(2)}</div><div style='font-weight:700'>Total: ₹ ${r.totals.total.toFixed(2)}</div></div>
+      </div>
+    `; w.document.write(`<!doctype html><html><head><meta charset='utf-8'><title>${invNo}</title></head><body>${content}</body></html>`); w.document.close(); }catch(e){ alert('Error: '+e.message); } }
+
+// Print: open invoicePreview only
+function printInvoice(){ const content = $('invoicePreview').outerHTML; const styles = `<style>@media print{@page{size:auto;margin:10mm}}body{font-family:Inter,Arial;color:#0f172a;margin:12px}.invoice{padding:0}.small{font-size:13px;color:#6b7280}#lineItems>div{display:flex;justify-content:space-between;padding:6px 0}</style>`; const w = window.open('','_blank'); const title = $('invoiceNo').innerText || 'Invoice'; w.document.write(`<!doctype html><html><head><meta charset='utf-8'><title>${title}</title>${styles}</head><body>${content}</body></html>`); w.document.close(); w.focus(); w.onload = ()=> setTimeout(()=> w.print(),100); }
+
+// Export JSON
+function exportInvoice(){ const data = { invoiceNo:$('invoiceNo').innerText, date:new Date().toISOString(), customer:{name:$('customerName').value.trim(), mobile:$('customerMobile').value.trim()}, products:cart, settings}; const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`invoice-${$('invoiceNo').innerText||'untitled'}.json`; a.click(); }
+
+// Add product modal handlers
+function openAddProductModal(){ $('modal').style.display='flex'; }
+function closeAddProductModal(){ $('modal').style.display='none'; $('p_name').value=''; $('p_price').value=''; $('p_sku').value=''; }
+function saveProductFromModal(){ const name = $('p_name').value.trim(); const price = Number($('p_price').value)||0; const sku = $('p_sku').value.trim(); if(!name || price<=0){ alert('Enter product name and price > 0'); return; } const id = products.length? (Math.max(...products.map(p=>p.id))+1):1; products.push({id,name,price,sku}); closeAddProductModal(); renderCatalog(); }
+
+// Init UI and listeners
+function randomizeInvoice(){ const n = 'INV'+Date.now().toString().slice(-8); $('invoiceNo').innerText=n; $('previewInv').innerText=n; }
+function applySettings(){ settings.discount = Number($('discount').value)||0; settings.discountType = $('discountType').value; settings.tax = Number($('tax').value)||0; settings.advance = Number($('advanceInput').value)||0; renderPreview(); }
+
+function init(){
+  renderCatalog(); renderCart(); randomizeInvoice();
+  // listeners
+  $('search').addEventListener('input', e=> renderCatalog(e.target.value));
+  $('btnAddProduct').addEventListener('click', openAddProductModal);
+  $('btnModalCancel').addEventListener('click', closeAddProductModal);
+  $('btnModalSave').addEventListener('click', saveProductFromModal);
+  $('btnClear').addEventListener('click', clearCart);
+  $('btnPrint').addEventListener('click', printInvoice);
+  $('btnExport').addEventListener('click', exportInvoice);
+  $('btnSaveLocal').addEventListener('click', saveInvoice);
+  $('publishBtn').addEventListener('click', saveAndPublish);
+  $('btnHistory').addEventListener('click', openHistory);
+  $('btnCloseHistory').addEventListener('click', closeHistory);
+  $('btnSearchHistory').addEventListener('click', searchHistory);
+  $('btnListAll').addEventListener('click', listAllHistory);
+  $('btnApply').addEventListener('click', ()=>{ applySettings(); alert('Settings applied.'); });
+  $('btnNewInv').addEventListener('click', randomizeInvoice);
+  $('btnPublicRefresh').addEventListener('click', loadPublicInvoices);
+  // advance input live
+  $('advanceInput').addEventListener('input', ()=>{ settings.advance = Number($('advanceInput').value)||0; renderPreview(); });
+  // close history result delegated listener already set above
+  // ensure publish button enabled
+  $('publishBtn').disabled = false;
+}
+
+init();
+</script>
+</body>
+</html>
