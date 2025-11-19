@@ -179,12 +179,12 @@
       <div id="historyResults" style="margin-top:12px;max-height:520px;overflow:auto"></div>
   </div></div>
 
-  <!-- Firebase SDKs (compat build) - keep if you use publish feature -->
+  <!-- Firebase SDKs (compat build) -->
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
 
 <script>
-// Insert your firebaseConfig object here if you use Firestore publish
+/* ====== Firebase config (your config inserted) ====== */
 const firebaseConfig = {
   apiKey: "AIzaSyDbgBrXOpset_I_RLWgyxoiMEeM6AYPG6E",
   authDomain: "invoice--web.firebaseapp.com",
@@ -196,11 +196,9 @@ const firebaseConfig = {
 };
 
 let firestore = null;
-if(firebaseConfig && firebaseConfig.projectId){
-  try{ firebase.initializeApp(firebaseConfig); firestore = firebase.firestore(); console.log('Firebase ready'); }catch(e){console.warn('Firebase init failed', e)}
-}
+try{ firebase.initializeApp(firebaseConfig); firestore = firebase.firestore(); console.log('Firebase ready'); }catch(e){ console.warn('Firebase init failed', e); }
 
-// App state
+/* ===== App code (full) ===== */
 let products = [
   {id:1,name:'Product A',price:199.00,sku:'A001'},
   {id:2,name:'Product B',price:349.00,sku:'B001'},
@@ -209,11 +207,9 @@ let products = [
 let cart = [];
 let settings = {discount:0,discountType:'flat',tax:0,advance:0};
 
-// Helpers
 const $ = id => document.getElementById(id);
 function format(v){ return '₹ '+Number(v||0).toFixed(2); }
 
-// Render functions
 function renderCatalog(filter=''){
   const el = $('productCatalog'); el.innerHTML = '';
   const list = products.filter(p => (p.name||'').toLowerCase().includes(filter.toLowerCase()) || (p.sku||'').toLowerCase().includes(filter.toLowerCase()));
@@ -274,7 +270,7 @@ function renderPreview(){
   $('balanceVal').innerText = format(t.balance);
 }
 
-// Local storage
+/* Local storage helpers */
 function loadInvoices(){ try{ return JSON.parse(localStorage.getItem('invoices_v1')||'[]'); }catch(e){ return []; } }
 function saveInvoices(arr){ localStorage.setItem('invoices_v1', JSON.stringify(arr)); }
 function loadCustomers(){ try{ return JSON.parse(localStorage.getItem('customers_v1')||'{}'); }catch(e){ return {}; } }
@@ -291,37 +287,70 @@ function saveInvoice(){
   alert('Invoice saved locally.');
 }
 
+/* History */
 function openHistory(){ $('historyModal').style.display='flex'; listAllHistory(); }
 function closeHistory(){ $('historyModal').style.display='none'; }
 function listAllHistory(){ renderHistoryResults(loadInvoices()); }
 function searchHistory(){ const mobile=$('historyMobile').value.trim(); const inv=$('historyInvoiceNo').value.trim(); let res=loadInvoices(); if(mobile) res=res.filter(r=>r.customer&&r.customer.mobile&&r.customer.mobile.includes(mobile)); if(inv) res=res.filter(r=>r.invoiceNo&&r.invoiceNo.includes(inv)); renderHistoryResults(res); }
-function renderHistoryResults(results){ const el=$('historyResults'); el.innerHTML=''; if(!results.length){ el.innerHTML='<div class="small">No invoices found.</div>'; return; } results.forEach(r=>{ const d=document.createElement('div'); d.style.padding='8px'; d.style.borderBottom='1px solid #f1f5f9'; d.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><div><strong>${r.invoiceNo}</strong> <span class='small'>• ${new Date(r.date).toLocaleString()}</span><div class='small'>${r.customer&&r.customer.name? r.customer.name+' • '+r.customer.mobile : 'No customer'}</div></div><div style='display:flex;gap:8px'><button class='btn' data-inv='${r.invoiceNo}' data-action='load'>Load</button><button class='btn' data-inv='${r.invoiceNo}' data-action='download'>Download</button><button class='btn' data-inv='${r.invoiceNo}' data-action='delete'>Delete</button></div></div>`; el.appendChild(d); });
-}
+function renderHistoryResults(results){ const el=$('historyResults'); el.innerHTML=''; if(!results.length){ el.innerHTML='<div class=\"small\">No invoices found.</div>'; return; } results.forEach(r=>{ const d=document.createElement('div'); d.style.padding='8px'; d.style.borderBottom='1px solid #f1f5f9'; d.innerHTML = `<div style=\"display:flex;justify-content:space-between;align-items:center\"><div><strong>${r.invoiceNo}</strong> <span class='small'>• ${new Date(r.date).toLocaleString()}</span><div class='small'>${r.customer&&r.customer.name? r.customer.name+' • '+r.customer.mobile : 'No customer'}</div></div><div style='display:flex;gap:8px'><button class='btn' data-inv='${r.invoiceNo}' data-action='load'>Load</button><button class='btn' data-inv='${r.invoiceNo}' data-action='download'>Download</button><button class='btn' data-inv='${r.invoiceNo}' data-action='delete'>Delete</button></div></div>`; el.appendChild(d); }); }
 
-// History button actions (delegated)
-$('historyResults')?.addEventListener('click', (e)=>{
-  const b = e.target.closest('button'); if(!b) return; const inv = b.dataset.inv; const action = b.dataset.action;
+/* Delegated history actions */
+document.addEventListener('click', (e)=>{
+  const b = e.target.closest('button[data-action]');
+  if(!b) return;
+  const inv = b.dataset.inv; const action = b.dataset.action;
   if(action==='load') loadInvoice(inv);
   if(action==='download') downloadInvoice(inv);
   if(action==='delete') deleteInvoice(inv);
 });
 
+/* Load / Download / Delete */
 function loadInvoice(invNo){ const arr = loadInvoices(); const r = arr.find(x=>x.invoiceNo===invNo); if(!r){ alert('Invoice not found'); return; } cart = r.products.map(p=>({id:p.id,name:p.name,price:p.price,qty:p.qty,sku:p.sku})); settings.discount=r.settings.discount||0; settings.discountType=r.settings.discountType||'flat'; settings.tax=r.settings.tax||0; settings.advance=r.settings.advance||0; $('discount').value=settings.discount; $('discountType').value=settings.discountType; $('tax').value=settings.tax; $('advanceInput').value=settings.advance; $('customerName').value=r.customer?.name||''; $('customerMobile').value=r.customer?.mobile||''; $('invoiceNo').innerText=r.invoiceNo; renderCart(); closeHistory(); alert('Invoice loaded into editor.'); }
 function downloadInvoice(invNo){ const arr=loadInvoices(); const r=arr.find(x=>x.invoiceNo===invNo); if(!r) return alert('Not found'); const blob=new Blob([JSON.stringify(r,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`invoice-${invNo}.json`; a.click(); }
 function deleteInvoice(invNo){ if(!confirm('Delete invoice '+invNo+'? This cannot be undone.')) return; let arr=loadInvoices(); arr=arr.filter(x=>x.invoiceNo!==invNo); saveInvoices(arr); listAllHistory(); }
 
-// Publish (Firestore)
-async function saveAndPublish(){ saveInvoice(); if(!firestore){ alert('Firebase not configured. Configure firebaseConfig in the file to publish online.'); return; } const invNo = $('invoiceNo').innerText || ('INV'+Date.now().toString().slice(-8)); const doc = { invoiceNo: invNo, date: new Date().toISOString(), customer:{name:$('customerName').value.trim(), mobile:$('customerMobile').value.trim()}, products: cart.map(p=>({id:p.id,name:p.name,price:p.price,qty:p.qty,sku:p.sku})), settings:{...settings, discount:Number(settings.discount)||0, tax:Number(settings.tax)||0, advance:Number(settings.advance)||0}, totals: computeTotals(), publishedAt: new Date().toISOString() };
-try{ await firestore.collection('public_invoices').doc(invNo).set(doc); alert('Invoice published publicly.'); loadPublicInvoices(); }catch(e){ console.error(e); alert('Publish failed: '+e.message); } }
-async function loadPublicInvoices(){ const container=$('publicList'); container.innerHTML='<div class="small">Loading...</div>'; if(!firestore){ container.innerHTML='<div class="small">Firebase not configured — public invoices unavailable.</div>'; return;} try{ const snapshot = await firestore.collection('public_invoices').orderBy('publishedAt','desc').limit(200).get(); const q = $('publicSearch').value.trim().toLowerCase(); const list = []; snapshot.forEach(doc=>{ const data=doc.data(); if(!q|| (data.customer&&data.customer.mobile&&data.customer.mobile.includes(q)) || (data.invoiceNo&&data.invoiceNo.toLowerCase().includes(q))) list.push(data); }); if(!list.length){ container.innerHTML='<div class="small">No public invoices found.</div>'; return;} container.innerHTML=''; list.forEach(r=>{ const d=document.createElement('div'); d.style.padding='8px'; d.style.borderBottom='1px solid #f1f5f9'; d.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center"><div><strong>${r.invoiceNo}</strong> <span class='small'>• ${new Date(r.date).toLocaleString()}</span><div class='small'>${r.customer&&r.customer.name? r.customer.name+' • '+r.customer.mobile : 'No customer'}</div></div><div style='display:flex;gap:8px'><button class='btn' data-inv='${r.invoiceNo}' data-action='viewPublic'>View</button></div></div>`; container.appendChild(d); }); }catch(e){ console.error(e); container.innerHTML='<div class="small">Error loading public invoices: '+e.message+'</div>'; } }
+/* Publish */
+async function saveAndPublish(){
+  saveInvoice();
+  if(!firestore){ alert('Firebase not configured. Configure firebaseConfig in the file to publish online.'); return; }
+  const invNo = $('invoiceNo').innerText || ('INV'+Date.now().toString().slice(-8));
+  const doc = { invoiceNo: invNo, date: new Date().toISOString(), customer:{name:$('customerName').value.trim(), mobile:$('customerMobile').value.trim()}, products: cart.map(p=>({id:p.id,name:p.name,price:p.price,qty:p.qty,sku:p.sku})), settings:{...settings, discount:Number(settings.discount)||0, tax:Number(settings.tax)||0, advance:Number(settings.advance)||0}, totals: computeTotals(), publishedAt: new Date().toISOString() };
+  try{ await firestore.collection('public_invoices').doc(invNo).set(doc); alert('Invoice published publicly.'); loadPublicInvoices(); }catch(e){ console.error(e); alert('Publish failed: '+e.message); }
+}
 
+async function loadPublicInvoices(){
+  const container=$('publicList'); container.innerHTML='<div class="small">Loading...</div>';
+  if(!firestore){ container.innerHTML='<div class="small">Firebase not configured — public invoices unavailable.</div>'; return;}
+  try{
+    const snapshot = await firestore.collection('public_invoices').orderBy('publishedAt','desc').limit(200).get();
+    const q = $('publicSearch').value.trim().toLowerCase();
+    const list = [];
+    snapshot.forEach(doc=>{ const data=doc.data(); if(!q|| (data.customer&&data.customer.mobile&&data.customer.mobile.includes(q)) || (data.invoiceNo&&data.invoiceNo.toLowerCase().includes(q))) list.push(data); });
+    if(!list.length){ container.innerHTML='<div class="small">No public invoices found.</div>'; return;}
+    container.innerHTML='';
+    list.forEach(r=>{
+      const d=document.createElement('div'); d.style.padding='8px'; d.style.borderBottom='1px solid #f1f5f9';
+      d.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><div><strong>${r.invoiceNo}</strong> <span class='small'>• ${new Date(r.date).toLocaleString()}</span><div class='small'>${r.customer&&r.customer.name? r.customer.name+' • '+r.customer.mobile : 'No customer'}</div></div><div style='display:flex;gap:8px'><button class='btn' data-inv='${r.invoiceNo}' data-action='viewPublic'>View</button></div></div>`;
+      container.appendChild(d);
+    });
+  }catch(e){ console.error(e); container.innerHTML='<div class="small">Error loading public invoices: '+e.message+'</div>'; }
+}
+
+/* View public invoice (delegated) */
 document.addEventListener('click', (e)=>{
-  if(e.target && e.target.dataset && e.target.dataset.action==='viewPublic'){
-    const inv = e.target.dataset.inv; viewPublicInvoice(inv);
-  }
+  const b = e.target.closest('button[data-action="viewPublic"]');
+  if(!b) return;
+  const inv = b.dataset.inv; viewPublicInvoice(inv);
 });
 
-async function viewPublicInvoice(invNo){ if(!firestore){ alert('Firebase not configured'); return; } try{ const doc = await firestore.collection('public_invoices').doc(invNo).get(); if(!doc.exists){ alert('Not found'); return; } const r = doc.data(); const w = window.open('','_blank'); const content = `
+async function viewPublicInvoice(invNo){
+  if(!firestore){ alert('Firebase not configured'); return; }
+  try{
+    const doc = await firestore.collection('public_invoices').doc(invNo).get();
+    if(!doc.exists){ alert('Not found'); return; }
+    const r = doc.data();
+    const w = window.open('','_blank');
+    const content = `
       <div style="font-family:Inter,Arial;max-width:700px;margin:20px auto;padding:12px;border:1px solid #eee">
         <h2>${r.invoiceNo}</h2>
         <div>${r.customer && r.customer.name ? r.customer.name : ''} ${r.customer && r.customer.mobile ? ' • ' + r.customer.mobile : ''}</div>
@@ -330,26 +359,27 @@ async function viewPublicInvoice(invNo){ if(!firestore){ alert('Firebase not con
         <hr/>
         <div style='text-align:right'><div>Subtotal: ₹ ${r.totals.subtotal.toFixed(2)}</div><div>Tax: ₹ ${r.totals.tax.toFixed(2)}</div><div style='font-weight:700'>Total: ₹ ${r.totals.total.toFixed(2)}</div></div>
       </div>
-    `; w.document.write(`<!doctype html><html><head><meta charset='utf-8'><title>${invNo}</title></head><body>${content}</body></html>`); w.document.close(); }catch(e){ alert('Error: '+e.message); } }
+    `;
+    w.document.write(`<!doctype html><html><head><meta charset='utf-8'><title>${invNo}</title></head><body>${content}</body></html>`);
+    w.document.close();
+  }catch(e){ alert('Error: '+e.message); }
+}
 
-// Print: open invoicePreview only
+/* Print and Export */
 function printInvoice(){ const content = $('invoicePreview').outerHTML; const styles = `<style>@media print{@page{size:auto;margin:10mm}}body{font-family:Inter,Arial;color:#0f172a;margin:12px}.invoice{padding:0}.small{font-size:13px;color:#6b7280}#lineItems>div{display:flex;justify-content:space-between;padding:6px 0}</style>`; const w = window.open('','_blank'); const title = $('invoiceNo').innerText || 'Invoice'; w.document.write(`<!doctype html><html><head><meta charset='utf-8'><title>${title}</title>${styles}</head><body>${content}</body></html>`); w.document.close(); w.focus(); w.onload = ()=> setTimeout(()=> w.print(),100); }
-
-// Export JSON
 function exportInvoice(){ const data = { invoiceNo:$('invoiceNo').innerText, date:new Date().toISOString(), customer:{name:$('customerName').value.trim(), mobile:$('customerMobile').value.trim()}, products:cart, settings}; const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`invoice-${$('invoiceNo').innerText||'untitled'}.json`; a.click(); }
 
-// Add product modal handlers
+/* Add product modal handlers */
 function openAddProductModal(){ $('modal').style.display='flex'; }
 function closeAddProductModal(){ $('modal').style.display='none'; $('p_name').value=''; $('p_price').value=''; $('p_sku').value=''; }
 function saveProductFromModal(){ const name = $('p_name').value.trim(); const price = Number($('p_price').value)||0; const sku = $('p_sku').value.trim(); if(!name || price<=0){ alert('Enter product name and price > 0'); return; } const id = products.length? (Math.max(...products.map(p=>p.id))+1):1; products.push({id,name,price,sku}); closeAddProductModal(); renderCatalog(); }
 
-// Init UI and listeners
+/* Init */
 function randomizeInvoice(){ const n = 'INV'+Date.now().toString().slice(-8); $('invoiceNo').innerText=n; $('previewInv').innerText=n; }
 function applySettings(){ settings.discount = Number($('discount').value)||0; settings.discountType = $('discountType').value; settings.tax = Number($('tax').value)||0; settings.advance = Number($('advanceInput').value)||0; renderPreview(); }
 
 function init(){
   renderCatalog(); renderCart(); randomizeInvoice();
-  // listeners
   $('search').addEventListener('input', e=> renderCatalog(e.target.value));
   $('btnAddProduct').addEventListener('click', openAddProductModal);
   $('btnModalCancel').addEventListener('click', closeAddProductModal);
@@ -366,10 +396,7 @@ function init(){
   $('btnApply').addEventListener('click', ()=>{ applySettings(); alert('Settings applied.'); });
   $('btnNewInv').addEventListener('click', randomizeInvoice);
   $('btnPublicRefresh').addEventListener('click', loadPublicInvoices);
-  // advance input live
   $('advanceInput').addEventListener('input', ()=>{ settings.advance = Number($('advanceInput').value)||0; renderPreview(); });
-  // close history result delegated listener already set above
-  // ensure publish button enabled
   $('publishBtn').disabled = false;
 }
 
