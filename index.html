@@ -430,25 +430,113 @@ async function downloadPublicInvoicePDF(invNo){
 }
 
 /* Build printable HTML */
+// Replace existing buildPrintableHtml with this version
 function buildPrintableHtml(r){
-  const itemsHtml = (r.products||[]).map(p=>`<div style="display:flex;justify-content:space-between;padding:6px 0"><div>${p.name} x ${p.qty}</div><div>₹ ${(p.price*p.qty).toFixed(2)}</div></div>`).join('');
-  const totals = r.totals || {subtotal:0,tax:0,total:0};
-  return `
-    <div style="font-family:Arial,Helvetica,sans-serif;color:#111;max-width:700px;margin:18px auto;padding:12px">
-      <h2>${r.invoiceNo}</h2>
-      <div style="margin-bottom:8px">${r.customer?.name || ''} ${r.customer?.mobile?(' • '+r.customer.mobile):''}</div>
-      <hr/>
-      ${itemsHtml}
-      <hr/>
-      <div style="text-align:right">
-        <div>Subtotal: ₹ ${Number(totals.subtotal||0).toFixed(2)}</div>
-        <div>Tax: ₹ ${Number(totals.tax||0).toFixed(2)}</div>
-        <div style="font-weight:700">Total: ₹ ${Number(totals.total||0).toFixed(2)}</div>
+  r = r || {};
+  const items = r.products || [];
+  const totals = r.totals || { subtotal: 0, tax: 0, total: 0, advance: 0 };
+
+  const itemsHtml = items.map(p => {
+    const qty = Number(p.qty || 1);
+    const price = Number(p.price || 0);
+    const lineTotal = (qty * price).toFixed(2);
+    return `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #e8e8e8;">
+        <div style="flex:1;font-size:15px;color:#111">${escapeHtml(p.name || '')} <span style="color:#666;font-size:13px">x ${qty}</span></div>
+        <div style="width:120px;text-align:right;font-size:15px">₹ ${Number(lineTotal).toFixed(2)}</div>
       </div>
-      <div style="margin-top:12px;font-size:12px;color:#666">Generated: ${new Date(r.publishedAt || r.date || Date.now()).toLocaleString()}</div>
+    `;
+  }).join('');
+
+  // header / layout styles like your reference image
+  const html = `
+  <!doctype html>
+  <html>
+  <head>
+    <meta charset="utf-8">
+    <title>${escapeHtml(r.invoiceNo || '')}</title>
+    <style>
+      body{font-family: Arial, Helvetica, sans-serif; color:#111; margin:0; padding:28px;}
+      .topRow{display:flex;justify-content:space-between;align-items:flex-start;}
+      .shop{font-size:20px;font-weight:700;margin-bottom:4px;}
+      .shop-sub{font-size:13px;color:#666;margin-bottom:8px;}
+      .meta{font-size:13px;color:#333;text-align:right;}
+      .divider{border-top:1px solid #ccc;margin:14px 0;}
+      .content{max-width:900px;margin:0 auto;}
+      .columns{display:flex;gap:24px;}
+      .leftCol{flex:1;}
+      .rightCol{width:320px;}
+      .totals{font-size:14px;text-align:right;}
+      .totals .row{display:flex;justify-content:space-between;padding:3px 0;}
+      .totals .label{color:#333;}
+      .totals .value{min-width:110px;text-align:right;}
+      .totals .big{font-weight:800;font-size:20px;}
+      .generated{color:#777;font-size:12px;margin-top:20px;}
+      @media print {
+        body{padding:12px;}
+      }
+    </style>
+  </head>
+  <body>
+    <div class="content">
+      <div class="topRow">
+        <div>
+          <div class="shop">${escapeHtml(r.shopName || 'Your Shop Name')}</div>
+          <div class="shop-sub">${escapeHtml(r.shopAddressLine1 || 'Address line 1')}<br>${escapeHtml(r.shopCityState || 'City, State')}</div>
+        </div>
+        <div class="meta">
+          <div>Invoice: <strong>${escapeHtml(r.invoiceNo || '')}</strong></div>
+          <div>Date: ${escapeHtml(new Date(r.date || Date.now()).toLocaleString())}</div>
+          <div>Customer: ${escapeHtml(r.customer?.name || '-')}</div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="columns">
+        <div class="leftCol">
+          ${itemsHtml || '<div style="color:#666;padding:10px 0">No items</div>'}
+        </div>
+
+        <div class="rightCol">
+          <div class="totals">
+            <div class="row"><div class="label">Sub total</div><div class="value">₹ ${Number(totals.subtotal||0).toFixed(2)}</div></div>
+            <div class="row"><div class="label">Discount</div><div class="value">₹ ${Number(totals.discount||0).toFixed(2)}</div></div>
+            <div class="row"><div class="label">Tax</div><div class="value">₹ ${Number(totals.tax||0).toFixed(2)}</div></div>
+            <div class="row"><div class="label">Total</div><div class="value">₹ ${Number(totals.total||0).toFixed(2)}</div></div>
+            <div class="row"><div class="label">Advance Paid</div><div class="value">₹ ${Number(totals.advance||0).toFixed(2)}</div></div>
+
+            <div style="height:10px"></div>
+
+            <div class="row">
+              <div style="font-weight:700;font-size:18px">Balance Due</div>
+              <div class="value big">₹ ${Number(totals.balance||totals.total - (totals.advance||0)).toFixed(2)}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="generated">Generated: ${escapeHtml(new Date(r.publishedAt || r.date || Date.now()).toLocaleString())}</div>
     </div>
+  </body>
+  </html>
   `;
+  return html;
 }
+
+// helper to escape strings injected into the printable HTML
+function escapeHtml(s){
+  if(s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 
 /* CSV download */
 async function downloadPublicInvoiceCSV(invNo){
