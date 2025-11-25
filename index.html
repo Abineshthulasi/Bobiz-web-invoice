@@ -46,8 +46,14 @@
 
         <label>Customer Name</label>
         <input id="customerName" placeholder="Enter customer name" />
+
         <label>Mobile Number</label>
         <input id="customerMobile" placeholder="10-digit mobile" />
+
+        <!-- NEW: Order ID input (auto-filled but editable) -->
+        <label>Order ID</label>
+        <input id="orderId" placeholder="Auto-generated" />
+
         <div class="small" style="margin-bottom:8px">Saved locally in browser; publishing will save to your Firebase Firestore.</div>
 
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
@@ -97,6 +103,8 @@
             </div>
             <div class="right small">
               <div>Invoice: <strong id="previewInv"></strong></div>
+              <!-- NEW: Order ID display in preview -->
+              <div>Order ID: <strong id="previewOrderId"></strong></div>
               <div>Date: <span id="previewDate"></span></div>
               <div class="small">Customer: <span id="previewCustomer"></span></div>
             </div>
@@ -260,6 +268,11 @@ function computeTotals(){
 function renderPreview(){
   $('previewDate').innerText = new Date().toLocaleString();
   $('previewInv').innerText = $('invoiceNo').innerText || '';
+
+  // NEW: sync Order ID into preview
+  const orderId = $('orderId').value.trim();
+  $('previewOrderId').innerText = orderId || '-';
+
   const customer = $('customerName').value.trim() + ($('customerMobile').value.trim() ? (' • ' + $('customerMobile').value.trim()) : '');
   $('previewCustomer').innerText = customer || '-';
   const li = $('lineItems'); li.innerHTML = '';
@@ -289,7 +302,27 @@ function saveInvoice(){
   if(!mobile){ if(!confirm('Save without customer mobile? This invoice will not be associated with a customer. Continue?')) return; }
   const invNo = $('invoiceNo').innerText || ('INV'+Date.now().toString().slice(-8));
   const t = computeTotals();
-  const record = { invoiceNo: invNo, date: new Date().toISOString(), customer:{name,mobile}, products: cart.map(p=>({id:p.id,name:p.name,price:p.price,qty:p.qty,sku:p.sku})), settings:{...settings, discount:Number(settings.discount)||0, tax:Number(settings.tax)||0, advance:Number(settings.advance)||0}, totals:t };
+  const cleanProductsLocal = cart.map(p => {
+  const obj = {
+    id: p.id ?? null,
+    name: p.name || '',
+    price: Number(p.price) || 0,
+    qty: Number(p.qty) || 1
+  };
+  if (p.sku) obj.sku = p.sku;
+  return obj;
+});
+
+const record = { 
+  invoiceNo: invNo,
+  orderId: $('orderId').value.trim() || '',
+  date: new Date().toISOString(),
+  customer:{name,mobile},
+  products: cleanProductsLocal,
+  settings:{...settings, discount:Number(settings.discount)||0, tax:Number(settings.tax)||0, advance:Number(settings.advance)||0},
+  totals:t 
+};
+
   let arr = loadInvoices(); const idx = arr.findIndex(x=>x.invoiceNo===invNo); if(idx>=0) arr[idx]=record; else arr.unshift(record); saveInvoices(arr);
   if(mobile){ const c = loadCustomers(); c[mobile] = {name,mobile,lastInvoice:invNo,lastSeen:new Date().toISOString()}; saveCustomers(c); }
   alert('Invoice saved locally.');
@@ -313,7 +346,30 @@ document.addEventListener('click', (e)=>{
 });
 
 /* Load / Download / Delete */
-function loadInvoice(invNo){ const arr = loadInvoices(); const r = arr.find(x=>x.invoiceNo===invNo); if(!r){ alert('Invoice not found'); return; } cart = r.products.map(p=>({id:p.id,name:p.name,price:p.price,qty:p.qty,sku:p.sku})); settings.discount=r.settings.discount||0; settings.discountType=r.settings.discountType||'flat'; settings.tax=r.settings.tax||0; settings.advance=r.settings.advance||0; $('discount').value=settings.discount; $('discountType').value=settings.discountType; $('tax').value=settings.tax; $('advanceInput').value=settings.advance; $('customerName').value=r.customer?.name||''; $('customerMobile').value=r.customer?.mobile||''; $('invoiceNo').innerText=r.invoiceNo; renderCart(); closeHistory(); alert('Invoice loaded into editor.'); }
+function loadInvoice(invNo){ 
+  const arr = loadInvoices(); 
+  const r = arr.find(x=>x.invoiceNo===invNo); 
+  if(!r){ alert('Invoice not found'); return; } 
+  cart = r.products.map(p=>({id:p.id,name:p.name,price:p.price,qty:p.qty,sku:p.sku})); 
+  settings.discount=r.settings.discount||0; 
+  settings.discountType=r.settings.discountType||'flat'; 
+  settings.tax=r.settings.tax||0; 
+  settings.advance=r.settings.advance||0; 
+  $('discount').value=settings.discount; 
+  $('discountType').value=settings.discountType; 
+  $('tax').value=settings.tax; 
+  $('advanceInput').value=settings.advance; 
+  $('customerName').value=r.customer?.name||''; 
+  $('customerMobile').value=r.customer?.mobile||''; 
+  $('invoiceNo').innerText=r.invoiceNo; 
+
+  // NEW: load saved order ID
+  $('orderId').value = r.orderId || '';
+
+  renderCart(); 
+  closeHistory(); 
+  alert('Invoice loaded into editor.'); 
+}
 function downloadInvoice(invNo){ const arr=loadInvoices(); const r=arr.find(x=>x.invoiceNo===invNo); if(!r) return alert('Not found'); const blob=new Blob([JSON.stringify(r,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`invoice-${invNo}.json`; a.click(); }
 function deleteInvoice(invNo){ if(!confirm('Delete invoice '+invNo+'? This cannot be undone.')) return; let arr=loadInvoices(); arr=arr.filter(x=>x.invoiceNo!==invNo); saveInvoices(arr); listAllHistory(); }
 
@@ -366,6 +422,10 @@ async function editPublicInvoice(invNo){
     $('customerName').value = r.customer?.name || '';
     $('customerMobile').value = r.customer?.mobile || '';
     $('invoiceNo').innerText = r.invoiceNo;
+
+    // NEW: load order ID from public invoice
+    $('orderId').value = r.orderId || '';
+
     renderCart();
     window.scrollTo({top:0, behavior:'smooth'});
     alert('Public invoice loaded into editor. Edit and click Save & Publish to update the public copy.');
@@ -428,7 +488,6 @@ async function downloadPublicInvoicePDF(invNo){
 }
 
 /* Build printable HTML */
-// Replace existing buildPrintableHtml with this version
 function buildPrintableHtml(r){
   r = r || {};
   const items = r.products || [];
@@ -484,6 +543,8 @@ function buildPrintableHtml(r){
         </div>
         <div class="meta">
           <div>Invoice: <strong>${escapeHtml(r.invoiceNo || '')}</strong></div>
+          <!-- NEW: Order ID in printable header -->
+          <div>Order ID: <strong>${escapeHtml(r.orderId || '')}</strong></div>
           <div>Date: ${escapeHtml(new Date(r.date || Date.now()).toLocaleString())}</div>
           <div>Customer: ${escapeHtml(r.customer?.name || '-')}</div>
         </div>
@@ -543,8 +604,8 @@ async function downloadPublicInvoiceCSV(invNo){
     const doc = await firestore.collection('public_invoices').doc(invNo).get();
     if(!doc.exists){ alert('Not found'); return; }
     const r = doc.data();
-    let csv = 'Invoice No,Date,Customer Name,Customer Mobile\n';
-    csv += `${r.invoiceNo},${r.date},${escapeCsv(r.customer?.name||'' )},${r.customer?.mobile||''}\n\n`;
+    let csv = 'Invoice No,Order ID,Date,Customer Name,Customer Mobile\n';
+    csv += `${r.invoiceNo},${r.orderId || ''},${r.date},${escapeCsv(r.customer?.name||'' )},${r.customer?.mobile||''}\n\n`;
     csv += 'Item,SKU,Qty,Unit Price,Total\n';
     (r.products||[]).forEach(p=>{
       csv += `${escapeCsv(p.name)},${p.sku||''},${p.qty},${p.price},${(p.price*p.qty).toFixed(2)}\n`;
@@ -566,25 +627,81 @@ function escapeCsv(s){
 /* Save & Publish (overwrite) */
 async function saveAndPublish(){
   saveInvoice();
-  if(!firestore){ alert('Firebase not configured. Configure firebaseConfig in the file to publish online.'); return; }
+  if(!firestore){ 
+    alert('Firebase not configured. Configure firebaseConfig in the file to publish online.'); 
+    return; 
+  }
+
   const invNo = $('invoiceNo').innerText || ('INV'+Date.now().toString().slice(-8));
-  const doc = { invoiceNo: invNo, date: new Date().toISOString(), customer:{name:$('customerName').value.trim(), mobile:$('customerMobile').value.trim()}, products: cart.map(p=>({id:p.id,name:p.name,price:p.price,qty:p.qty,sku:p.sku})), settings:{...settings, discount:Number(settings.discount)||0, tax:Number(settings.tax)||0, advance:Number(settings.advance)||0}, totals: computeTotals(), publishedAt: new Date().toISOString() };
+
+  // Clean products so no field is undefined
+  const cleanProducts = cart.map(p => {
+    const obj = {
+      id: p.id ?? null,
+      name: p.name || '',
+      price: Number(p.price) || 0,
+      qty: Number(p.qty) || 1
+    };
+    if (p.sku) obj.sku = p.sku;  // only add sku if it exists
+    return obj;
+  });
+
+  // Clean settings as well
+  const safeSettings = {
+    discount: Number(settings.discount) || 0,
+    discountType: settings.discountType || 'flat',
+    tax: Number(settings.tax) || 0,
+    advance: Number(settings.advance) || 0
+  };
+
+  const doc = { 
+    invoiceNo: invNo,
+    orderId: $('orderId').value.trim() || '',
+    date: new Date().toISOString(),
+    customer:{
+      name: $('customerName').value.trim() || '',
+      mobile: $('customerMobile').value.trim() || ''
+    },
+    products: cleanProducts,
+    settings: safeSettings,
+    totals: computeTotals(),
+    publishedAt: new Date().toISOString()
+  };
+
   try{
     await firestore.collection('public_invoices').doc(invNo).set(doc);
     alert('Invoice published publicly.');
     loadPublicInvoices();
-  }catch(e){ console.error(e); alert('Publish failed: '+e.message); }
+  }catch(e){ 
+    console.error(e); 
+    alert('Publish failed: '+e.message); 
+  }
 }
 
 /* Print/export handlers for editor */
 function printEditorInvoice(){
   // Use same printable html approach
   const invNo = $('invoiceNo').innerText || ('INV'+Date.now().toString().slice(-8));
-  const docObj = { invoiceNo: invNo, date: new Date().toISOString(), customer:{name:$('customerName').value.trim(), mobile:$('customerMobile').value.trim()}, products: cart.map(p=>({id:p.id,name:p.name,price:p.price,qty:p.qty,sku:p.sku})), totals: computeTotals(), publishedAt: new Date().toISOString() };
+  const docObj = { 
+    invoiceNo: invNo, 
+    orderId: $('orderId').value.trim() || '',   // NEW: print order ID
+    date: new Date().toISOString(), 
+    customer:{name:$('customerName').value.trim(), mobile:$('customerMobile').value.trim()}, 
+    products: cart.map(p=>({id:p.id,name:p.name,price:p.price,qty:p.qty,sku:p.sku})), 
+    totals: computeTotals(), 
+    publishedAt: new Date().toISOString() 
+  };
   downloadPublicInvoicePDF(docObj);
 }
 function exportInvoice(){
-  const data = { invoiceNo:$('invoiceNo').innerText, date:new Date().toISOString(), customer:{name:$('customerName').value.trim(), mobile:$('customerMobile').value.trim()}, products:cart, settings};
+  const data = { 
+    invoiceNo:$('invoiceNo').innerText, 
+    orderId:$('orderId').value.trim() || '',   // NEW: export order ID
+    date:new Date().toISOString(), 
+    customer:{name:$('customerName').value.trim(), mobile:$('customerMobile').value.trim()}, 
+    products:cart, 
+    settings
+  };
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`invoice-${$('invoiceNo').innerText||'untitled'}.json`; a.click();
 }
 
@@ -594,7 +711,16 @@ function closeAddProductModal(){ $('modal').style.display='none'; $('p_name').va
 function saveProductFromModal(){ const name = $('p_name').value.trim(); const price = Number($('p_price').value)||0; const sku = $('p_sku').value.trim(); if(!name || price<=0){ alert('Enter product name and price > 0'); return; } const id = products.length? (Math.max(...products.map(p=>p.id))+1):1; products.push({id,name,price,sku}); closeAddProductModal(); renderCatalog(); }
 
 /* Init */
-function randomizeInvoice(){ const n = 'INV'+Date.now().toString().slice(-8); $('invoiceNo').innerText=n; $('previewInv').innerText=n; }
+// NEW: link Invoice No and Order ID using same last 8 digits
+function randomizeInvoice(){ 
+  const ts = Date.now().toString().slice(-8);
+  const inv = 'INV'+ts;
+  const oid = 'ORD'+ts;
+  $('invoiceNo').innerText = inv;
+  $('previewInv').innerText = inv;
+  $('orderId').value = oid;
+  $('previewOrderId').innerText = oid;
+}
 function applySettings(){ settings.discount = Number($('discount').value)||0; settings.discountType = $('discountType').value; settings.tax = Number($('tax').value)||0; settings.advance = Number($('advanceInput').value)||0; renderPreview(); }
 
 function init(){
